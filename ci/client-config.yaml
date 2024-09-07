@@ -1,0 +1,11 @@
+chain_id: 1001
+solana_url: "http://solana:8899"
+commitment_level: "confirmed"
+program_id_keypairs:
+  - "/opt/ci/rome-keypair1.json"
+  - "/opt/ci/rome-keypair2.json"
+payer_keypair: "/opt/ci/test-account-keypair.json"
+log: "/var/log/client/client.log"
+host: "0.0.0.0:9090"
+number_holders: 256
+start_slot: 0

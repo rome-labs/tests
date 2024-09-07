@@ -1,0 +1,14 @@
+[workspace]
+
+members = [
+    "evm",
+]
+resolver = "2"
+
+[patch.crates-io.aes-gcm-siv]
+git = "https://github.com/RustCrypto/AEADs"
+rev = "6105d7a5591aefa646a95d12b5e8d3f55a9214ef"
+
+[patch.crates-io.curve25519-dalek]
+git ="https://github.com/block-mesh/curve25519-dalek"
+branch = "rustls-dep-hell-1-18"

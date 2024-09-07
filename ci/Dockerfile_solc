@@ -1,0 +1,11 @@
+FROM ethereum/solc:0.8.0 AS solidity
+FROM ubuntu:20.04 AS contracts
+RUN apt-get update && \
+    DEBIAN_FRONTEND=nontineractive apt-get -y install xxd && \
+    rm -rf /var/lib/apt/lists/* /var/lib/apt/cache/*
+COPY solidity/*.sol /opt/
+COPY --from=solidity /usr/bin/solc /usr/bin/solc
+WORKDIR /opt/
+RUN solc --optimize --optimize-runs 200 --output-dir . --bin --abi *.sol && \
+    for file in $(ls *.bin); do xxd -r -p $file >${file}ary; done && \
+        ls -l
