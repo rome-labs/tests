@@ -55,7 +55,7 @@ cd ./local-env
 
 docker-compose up -d
 
-until has_container_exited "rome-evm-builder"; do
+until has_container_exited "rome-evm"; do
   sleep 2
 done
 
@@ -75,7 +75,7 @@ if balance_check "http://127.0.0.1:8545" $evm_address 0; then
   exit
 fi
 
-docker run --network="host" --name="openzeppelin" romeprotocol/openzeppelin-contracts:latest -env NETWORK_NAME='op_geth' | tee ../records/op-geth-zeppelin.txt
+docker run --network="host" --name="openzeppelin" romelabs/openzeppelin-contracts:latest -env NETWORK_NAME='op_geth' | tee ../records/op-geth-zeppelin.txt
 
 clear_env
 

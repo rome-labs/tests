@@ -55,7 +55,7 @@ cd ./local-env
 
 docker-compose up -d
 
-until has_container_exited "rome-evm-builder"; do
+until has_container_exited "rome-evm"; do
   sleep 2
 done
 
@@ -73,7 +73,7 @@ if balance_check "http://127.0.0.1:9090" $evm_address 0; then
   exit
 fi
 
-docker run --network="local-env_net" --name="openzeppelin" romeprotocol/openzeppelin-contracts:latest -env NETWORK_NAME='proxy' | tee ../records/proxy-zeppelin.txt
+docker run --network="local-env_net" --name="openzeppelin" romelabs/openzeppelin-contracts:latest -env NETWORK_NAME='proxy' | tee ../records/proxy-zeppelin.txt
 
 clear_env
 

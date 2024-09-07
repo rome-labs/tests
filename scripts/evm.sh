@@ -60,7 +60,7 @@ cd ./local-env
 
 docker-compose up -d
 
-until has_container_exited "rome-evm-builder"; do
+until has_container_exited "rome-evm"; do
   sleep 2
 done
 
@@ -85,10 +85,10 @@ if balance_check "http://127.0.0.1:9090" $evm_address 0; then
 fi
 
 # Run pair deployments 
-docker run --network="local-env_net" -e NETWORK='proxy' -e CHAIN_ID='1001' romeprotocol/uniswap-v2-core:latest yarn deploy:uniswapv2crossrollup
-docker run --network="local-env_net" -e NETWORK='proxy2' -e CHAIN_ID='1002' romeprotocol/uniswap-v2-core:latest yarn deploy:uniswapv2crossrollup
+docker run --network="local-env_net" -e NETWORK='proxy' -e CHAIN_ID='1001' romelabs/uniswap-v2-core:latest yarn deploy:uniswapv2crossrollup
+docker run --network="local-env_net" -e NETWORK='proxy2' -e CHAIN_ID='1002' romelabs/uniswap-v2-core:latest yarn deploy:uniswapv2crossrollup
 
-docker run --network="local-env_net" --name="rome-tests" -e CROSS_ROLLUP_TESTS=true romeprotocol/tests:latest | tee ../records/rome_tests.txt
+docker run --network="local-env_net" --name="rome-tests" -e CROSS_ROLLUP_TESTS=true romelabs/tests:latest | tee ../records/rome_tests.txt
 
 clear_env
 

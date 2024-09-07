@@ -1,3 +1,3 @@
 #!/bin/bash
 
-docker-compose up rome-evm-builder1 rome-evm-builder2
+docker-compose up rome-evm1 rome-evm2

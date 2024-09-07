@@ -30,9 +30,9 @@ services:
       start_period: 10s
 
   # Builds Rome-EVM binary with selected parameters and deploys it
-  rome-evm-builder1:
-    container_name: rome-evm-builder1
-    image: romeprotocol/rome-evm-builder:${ROME_EVM_BUILDER_TAG:-latest}
+  rome-evm1:
+    container_name: rome-evm1
+    image: romelabs/rome-evm:${ROME_EVM_BUILDER_TAG:-latest}
     environment:
       SOLANA_RPC: http://solana:8899
       CHAIN_ID: 1001
@@ -53,9 +53,9 @@ services:
       - net
 
   # Builds Rome-EVM binary with selected parameters and deploys it
-  rome-evm-builder2:
-    container_name: rome-evm-builder2
-    image: romeprotocol/rome-evm-builder:${ROME_EVM_BUILDER_TAG:-latest}
+  rome-evm2:
+    container_name: rome-evm2
+    image: romelabs/rome-evm:${ROME_EVM_BUILDER_TAG:-latest}
     environment:
       SOLANA_RPC: http://solana:8899
       CHAIN_ID: 1002
@@ -77,7 +77,7 @@ services:
 
   geth:
     container_name: geth
-    image: romeprotocol/rollup-op-geth:${GETH_TAG:-latest}
+    image: romelabs/rollup-op-geth:${GETH_TAG:-latest}
     hostname: geth
     environment:
       CHAIN_ID: '1001'
@@ -94,7 +94,7 @@ services:
 
   geth2:
     container_name: geth2
-    image: romeprotocol/rollup-op-geth:${GETH_TAG:-latest}
+    image: romelabs/rollup-op-geth:${GETH_TAG:-latest}
     hostname: geth1
     environment:
       CHAIN_ID: '1002'
@@ -111,7 +111,7 @@ services:
 
   rhea:
     container_name: rhea
-    image: romeprotocol/rome-apps:${RHEA_TAG:-latest}
+    image: romelabs/rome-apps:${RHEA_TAG:-latest}
     hostname: rhea
     environment:
       SERVICE_NAME: rhea
@@ -130,7 +130,7 @@ services:
         
   proxy:
     container_name: proxy
-    image: romeprotocol/rome-apps:${PROXY_TAG:-latest}
+    image: romelabs/rome-apps:${PROXY_TAG:-latest}
     hostname: proxy
     environment:
       SERVICE_NAME: proxy
@@ -146,12 +146,12 @@ services:
     depends_on:
       solana:
         condition: service_healthy
-      rome-evm-builder1:
+      rome-evm1:
         condition: service_completed_successfully
 
   proxy2:
     container_name: proxy2
-    image: romeprotocol/rome-apps:${PROXY_TAG:-latest}
+    image: romelabs/rome-apps:${PROXY_TAG:-latest}
     hostname: proxy2
     environment:
       SERVICE_NAME: proxy
@@ -167,7 +167,7 @@ services:
     depends_on:
       solana:
         condition: service_healthy
-      rome-evm-builder1:
+      rome-evm1:
         condition: service_completed_successfully
 networks:
   net:

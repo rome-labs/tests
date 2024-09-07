@@ -54,7 +54,7 @@ cd ./local-env
 
 docker-compose up -d
 
-until has_container_exited "rome-evm-builder"; do
+until has_container_exited "rome-evm"; do
   sleep 2
 done
 
@@ -72,7 +72,7 @@ if balance_check "http://127.0.0.1:9090" $evm_address 0; then
   exit
 fi
 
-docker run --network="local-env_net" --name="uniswap" -e NETWORK='proxy' -e CHAIN_ID='1001' romeprotocol/uniswap-v2-core:latest yarn test | tee ../records/proxy-uniswap.txt
+docker run --network="local-env_net" --name="uniswap" -e NETWORK='proxy' -e CHAIN_ID='1001' romelabs/uniswap-v2-core:latest yarn test | tee ../records/proxy-uniswap.txt
 
 clear_env
 

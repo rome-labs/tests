@@ -17,18 +17,18 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: 'Checkout rome-evm-private reposotory'
+      - name: 'Checkout rome-evm reposotory'
         uses: actions/checkout@master
         with:
-          path: rome-evm-private
-          repository: rome-protocol/rome-evm-private
+          path: rome-evm
+          repository: rome-labs/rome-evm
           ref: ${{env.ROME_EVM_REF_NAME}}
           token: ${{secrets.GIT_ROLLUP_TOKEN}}
       
       - name: 'Checkout rome-sdk reposotory'
         uses: actions/checkout@master
         with:
-          repository: rome-protocol/rome-sdk
+          repository: rome-labs/rome-sdk
           path: rome-sdk
           submodules: recursive
           ref: ${{env.ROME_SDK_REF_NAME}}
@@ -52,8 +52,8 @@ jobs:
           context: .
           push: true
           file: tests/ci/Dockerfile
-          tags: romeprotocol/tests:${{env.REF_NAME}}
-          labels: romeprotocol/tests:${{env.REF_NAME}}
+          tags: romelabs/tests:${{env.REF_NAME}}
+          labels: romelabs/tests:${{env.REF_NAME}}
 
 
       - name: 'Set latest tag'
@@ -61,7 +61,7 @@ jobs:
           ( github.ref_name == 'master' )
         run: |
           
-          docker pull romeprotocol/tests:${REF_NAME}
-          docker tag romeprotocol/tests:${REF_NAME} romeprotocol/tests:latest
-          docker push romeprotocol/tests:latest
+          docker pull romelabs/tests:${REF_NAME}
+          docker tag romelabs/tests:${REF_NAME} romelabs/tests:latest
+          docker push romelabs/tests:latest
       
