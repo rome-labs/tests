@@ -9,7 +9,7 @@ has_container_exited() {
   fi
 }
 
-export ROME_EVM_BUILDER_TAG=v0.1.0
+export ROME_EVM_TAG=v0.1.0
 export GETH_TAG=v0.1.0
 export RHEA_TAG=v0.1.0
 export PROXY_TAG=v0.1.0

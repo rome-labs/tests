@@ -32,7 +32,7 @@ services:
   # Builds Rome-EVM binary with selected parameters and deploys it
   rome-evm1:
     container_name: rome-evm1
-    image: romelabs/rome-evm:${ROME_EVM_BUILDER_TAG:-latest}
+    image: romelabs/rome-evm:${ROME_EVM_TAG:-latest}
     environment:
       SOLANA_RPC: http://solana:8899
       CHAIN_ID: 1001
@@ -55,7 +55,7 @@ services:
   # Builds Rome-EVM binary with selected parameters and deploys it
   rome-evm2:
     container_name: rome-evm2
-    image: romelabs/rome-evm:${ROME_EVM_BUILDER_TAG:-latest}
+    image: romelabs/rome-evm:${ROME_EVM_TAG:-latest}
     environment:
       SOLANA_RPC: http://solana:8899
       CHAIN_ID: 1002
