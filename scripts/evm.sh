@@ -9,10 +9,12 @@ has_container_exited() {
   fi
 }
 
-export ROME_EVM_BUILDER_TAG = "v0.1.0"
-export GETH_TAG = "v0.1.0"
-export RHEA_TAG = "v0.1.0"
-export PROXY_TAG = "v0.1.0"
+export ROME_EVM_BUILDER_TAG=v0.1.0
+export GETH_TAG=v0.1.0
+export RHEA_TAG=v0.1.0
+export PROXY_TAG=v0.1.0
+export UNISWAP_TAG=v0.1.0
+export TESTS_TAG=v0.1.0
 
 clear_env() {
   docker-compose down 
@@ -85,10 +87,10 @@ if balance_check "http://127.0.0.1:9090" $evm_address 0; then
 fi
 
 # Run pair deployments 
-docker run --network="local-env_net" -e NETWORK='proxy' -e CHAIN_ID='1001' romelabs/uniswap-v2-core:latest yarn deploy:uniswapv2crossrollup
-docker run --network="local-env_net" -e NETWORK='proxy2' -e CHAIN_ID='1002' romelabs/uniswap-v2-core:latest yarn deploy:uniswapv2crossrollup
+docker run --network="local-env_net" -e NETWORK='proxy' -e CHAIN_ID='1001' romelabs/uniswap-v2-core:${UNISWAP_TAG:-latest} yarn deploy:uniswapv2crossrollup
+docker run --network="local-env_net" -e NETWORK='proxy2' -e CHAIN_ID='1002' romelabs/uniswap-v2-core:${UNISWAP_TAG:-latest} yarn deploy:uniswapv2crossrollup
 
-docker run --network="local-env_net" --name="rome-tests" -e CROSS_ROLLUP_TESTS=true romelabs/tests:latest | tee ../records/rome_tests.txt
+docker run --network="local-env_net" --name="rome-tests" -e CROSS_ROLLUP_TESTS=true romelabs/tests:${TESTS_TAG:-latest} | tee ../records/rome_tests.txt
 
 clear_env
 
