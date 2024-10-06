@@ -1,22 +1,24 @@
 mod shared;
 
+use rome_evm_client::emulator;
 use {
     ethereum_abi::Value,
+    ethers::prelude::k256::ecdsa::SigningKey,
     ethers_core::types::{Address, Bytes},
     ethers_signers::Signer as EthSigner,
-    evm::U256,
+    ethers_signers::Wallet,
     primitive_types::H160,
     rome_evm_client::{
-        emulator::Instruction::CreateBalance,
+        emulator::{Instruction, Instruction::RegSigner},
         RomeEVMClient as Client,
     },
     rstest::*,
     shared::{
-        client,
-        tx::{abi, calc_address, do_rlp, method_id, wallet},
-        CONTRACTS,
+        client_config,
+        fixture::{client, owner_wallet},
+        tx::{abi, calc_address, do_rlp, do_rlp_with_gas, method_id},
+        wallet, CONTRACTS, CREATE_BALANCE_VALUE,
     },
-    solana_program::instruction::{AccountMeta, Instruction},
     solana_sdk::{
         signature::{read_keypair_file, Signer},
         transaction::Transaction,
@@ -34,7 +36,7 @@ async fn deploy_contract(client: &Client, contract: String) {
     let path = format!("{}{}.binary", CONTRACTS, contract);
     let bin = std::fs::read(&path).unwrap();
     let wallet = wallet();
-    let rlp = do_rlp(&client, None, bin, &wallet);
+    let rlp = do_rlp(&client, None, bin, &wallet, 0);
     client
         .send_transaction(Bytes::from(rlp.clone()))
         .await
@@ -57,7 +59,7 @@ async fn call_contract(client: &Client, contract: String, methods: Vec<&str>) {
     let wallet = wallet();
     //deploy contract
     let bin = std::fs::read(&bin_path).unwrap();
-    let rlp = do_rlp(&client, None, bin, &wallet);
+    let rlp = do_rlp(&client, None, bin, &wallet, 0);
     client
         .send_transaction(Bytes::from(rlp.clone()))
         .await
@@ -67,7 +69,7 @@ async fn call_contract(client: &Client, contract: String, methods: Vec<&str>) {
     let abi = abi(&abi_path);
 
     for func in methods {
-        let rlp = do_rlp(&client, Some(to), method_id(&abi, &func), &wallet);
+        let rlp = do_rlp(&client, Some(to), method_id(&abi, &func), &wallet, 0);
         client
             .send_transaction(Bytes::from(rlp.clone()))
             .await
@@ -90,7 +92,7 @@ async fn contract_caller(client: &Client, contract: String, caller: String, meth
     let to = H160::from_slice(wallet.address().as_bytes());
     let mut ctor = Value::encode(&[Value::Address(to)]);
     bin.append(&mut ctor);
-    let rlp = do_rlp(&client, None, bin, &wallet);
+    let rlp = do_rlp(&client, None, bin, &wallet, 0);
     client
         .send_transaction(Bytes::from(rlp.clone()))
         .await
@@ -101,7 +103,7 @@ async fn contract_caller(client: &Client, contract: String, caller: String, meth
     let abi = abi(&abi_path);
 
     for func in methods {
-        let rlp = do_rlp(&client, Some(to), method_id(&abi, &func), &wallet);
+        let rlp = do_rlp(&client, Some(to), method_id(&abi, &func), &wallet, 0);
         client
             .send_transaction(Bytes::from(rlp.clone()))
             .await
@@ -109,47 +111,98 @@ async fn contract_caller(client: &Client, contract: String, caller: String, meth
     }
 }
 
-#[ignore]
-#[rstest]
-fn create_balance(client: &Client) {
-    let blockhash = client.client.get_latest_blockhash().unwrap();
+async fn airdrop(
+    client: &Client,
+    owner: &Wallet<SigningKey>,
+    user: &Wallet<SigningKey>,
+    value: u64,
+) {
+    let to = Address::from_slice(user.address().as_bytes());
+    let rlp = do_rlp(&client, Some(to), vec![], &owner, value);
+    client
+        .send_transaction(Bytes::from(rlp.clone()))
+        .await
+        .unwrap();
+}
 
-    let payer = read_keypair_file(Path::new("/opt/ci/rome-owner-keypair.json"))
-        .expect("read payer keypair error");
+#[rstest(contract, gas_estimate, case::storage("Storage", 1))]
+async fn gas_transfer(
+    client: &Client,
+    owner_wallet: &Wallet<SigningKey>,
+    contract: String,
+    gas_estimate: u64,
+) {
+    let user = wallet();
+    let user_addr = Address::from_slice(user.address().as_bytes());
+    let owner_addr = Address::from_slice(owner_wallet.address().as_bytes());
+    let random = wallet();
+    let gas_recipient = Address::from_slice(&random.address().as_bytes());
 
-    let bin = hex::decode("5B38Da6a701c568545dCfcB03FcB875f56beddC4").unwrap();
-    let address = Address::from_slice(&bin);
-    let value: U256 = 123.into();
-    let mut buf = [0; 32];
-    value.to_big_endian(&mut buf);
+    assert!(gas_estimate <= CREATE_BALANCE_VALUE);
+    assert_eq!(
+        CREATE_BALANCE_VALUE,
+        client.get_balance(owner_addr).unwrap().as_u64()
+    );
 
-    let mut data = vec![CreateBalance as u8];
-    data.extend(address.as_bytes());
-    data.extend(buf);
+    airdrop(client, owner_wallet, &user, gas_estimate).await;
 
-    let emulation = emulator::emulate(
-        &client.program_id,
-        &data,
-        &payer.pubkey(),
-        client.client.clone(),
-    )
-    .unwrap();
+    assert_eq!(
+        gas_estimate,
+        client.get_balance(user_addr).unwrap().as_u64()
+    );
+    assert_eq!(
+        CREATE_BALANCE_VALUE - gas_estimate,
+        client.get_balance(owner_addr).unwrap().as_u64()
+    );
 
-    let mut meta = vec![];
-    for (key, item) in &emulation.accounts {
-        if item.writable {
-            meta.push(AccountMeta::new(*key, false))
-        } else {
-            meta.push(AccountMeta::new_readonly(*key, false))
-        }
-    }
+    client.reg_gas_recipient(gas_recipient.clone()).unwrap();
 
-    let ix = Instruction::new_with_bytes(client.program_id, &data, meta);
+    assert_eq!(0, client.get_balance(gas_recipient).unwrap().as_u64());
 
-    let tx = Transaction::new_signed_with_payer(&[ix], Some(&payer.pubkey()), &[&payer], blockhash);
+    let path = format!("{}{}.binary", CONTRACTS, contract);
+    let bin = std::fs::read(&path).unwrap();
+    let rlp = do_rlp_with_gas(&client, None, bin, &user, gas_estimate);
+    client
+        .send_transaction(Bytes::from(rlp.clone()))
+        .await
+        .unwrap();
 
-    let _ = client.client.send_and_confirm_transaction(&tx).unwrap();
-    let balance = client.get_balance(address).unwrap();
+    assert_eq!(
+        gas_estimate,
+        client.get_balance(gas_recipient).unwrap().as_u64()
+    );
+    assert_eq!(0, client.get_balance(user_addr).unwrap().as_u64());
+}
 
-    assert_eq!(value.as_u64(), balance.as_u64());
+#[rstest(contract, case::hello_world("HelloWorld"))]
+async fn get_storage_at(client: &Client, contract: String) {
+    let path = format!("{}{}.binary", CONTRACTS, contract);
+    let bin = std::fs::read(&path).unwrap();
+    let wallet = wallet();
+    let rlp = do_rlp(&client, None, bin, &wallet, 0);
+
+    let contract_addr = calc_address(client, &wallet.address());
+    let emulation = client.emulate(Instruction::DoTx, &rlp).unwrap();
+    client
+        .send_transaction(Bytes::from(rlp.clone()))
+        .await
+        .unwrap();
+
+    assert_eq!(emulation.storage.len(), 1);
+    let (slot_addr, slots) = emulation.storage.first_key_value().unwrap();
+    assert_eq!(*slot_addr, evm::H160::from_slice(contract_addr.as_bytes()));
+    assert_eq!(slots.len(), 1);
+    let (slot, rw) = slots.first_key_value().unwrap();
+    assert_eq!(*slot, evm::U256::zero());
+    assert_eq!(*rw, true);
+
+    let mut buf = [0u8; 32];
+    slot.to_big_endian(&mut buf);
+    let slot = ethers_core::types::U256::from_big_endian(&buf);
+    let addr = ethers_core::types::H160::from_slice(slot_addr.as_bytes());
+
+
+    let slot_value = client.eth_get_storage_at(addr, slot).unwrap();
+
+    assert_eq!(slot_value, 7.into());
 }

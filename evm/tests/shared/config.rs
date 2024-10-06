@@ -1,7 +1,7 @@
 use {
+    serde::{Deserialize, Serialize},
     solana_sdk::commitment_config::CommitmentLevel,
     std::{fs::File, io, path::Path},
-    serde::{Serialize, Deserialize},
 };
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
@@ -10,6 +10,7 @@ pub struct Config {
     pub solana_url: String,
     pub commitment_level: CommitmentLevel,
     pub program_id_keypairs: Vec<String>,
+    pub contract_owner_keypair: String,
     pub payer_keypair: String,
     pub log: String,
     pub host: String,

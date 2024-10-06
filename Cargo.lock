@@ -1896,22 +1896,7 @@ dependencies = [
  "borsh 0.9.3",
  "borsh-derive 0.9.3",
  "hex",
- "rome-evm 0.1.0",
- "solana-client",
- "solana-program",
- "solana-sdk",
-]
-
-[[package]]
-name = "emulator"
-version = "0.1.0"
-source = "git+https://github.com/rome-protocol/rome-evm-public.git#0d188994ffad8c8bf973bbf49157479c79b2e15d"
-dependencies = [
- "bincode",
- "borsh 0.9.3",
- "borsh-derive 0.9.3",
- "hex",
- "rome-evm 0.1.0 (git+https://github.com/rome-protocol/rome-evm-public.git)",
+ "rome-evm",
  "solana-client",
  "solana-program",
  "solana-sdk",
@@ -2407,7 +2392,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-std",
- "emulator 0.1.0",
  "ethereum-types 0.14.1",
  "ethereum_abi",
  "ethers",
@@ -5102,23 +5086,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rome-evm"
-version = "0.1.0"
-source = "git+https://github.com/rome-protocol/rome-evm-public.git#0d188994ffad8c8bf973bbf49157479c79b2e15d"
-dependencies = [
- "bincode",
- "borsh 0.9.3",
- "borsh-derive 0.9.3",
- "evm 0.18.0",
- "hex",
- "ripemd",
- "rlp",
- "solana-client",
- "solana-program",
- "thiserror",
-]
-
-[[package]]
 name = "rome-evm-client"
 version = "0.1.0"
 dependencies = [
@@ -5126,11 +5093,11 @@ dependencies = [
  "async-trait",
  "base64 0.12.3",
  "bincode",
- "emulator 0.1.0 (git+https://github.com/rome-protocol/rome-evm-public.git)",
+ "emulator",
  "ethers",
  "jsonrpsee-core",
  "rlp",
- "rome-evm 0.1.0 (git+https://github.com/rome-protocol/rome-evm-public.git)",
+ "rome-evm",
  "serde",
  "serde_json",
  "solana-client",
@@ -5158,6 +5125,7 @@ dependencies = [
  "jsonwebtoken 9.3.0",
  "reqwest 0.12.4",
  "rlp",
+ "rome-evm-client",
  "rome-solana",
  "rome-utils",
  "serde",

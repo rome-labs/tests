@@ -10,9 +10,9 @@ use {
     },
     rstest::*,
     shared::{
-        client,
-        tx::{abi, calc_address, do_rlp, method_id, wallet},
-        CONTRACTS,
+        fixture::client,
+        tx::{abi, calc_address, do_rlp, method_id},
+        wallet, CONTRACTS,
     },
 };
 
@@ -30,16 +30,12 @@ pub fn emulate_do_tx(client: &Client, rlp: Vec<u8>) -> Emulation {
     emulation
 }
 
-#[rstest(
-    contract,
-    case::storage("Storage"),
-    case::hello_world("HelloWorld")
-)]
+#[rstest(contract, case::storage("Storage"), case::hello_world("HelloWorld"))]
 async fn deploy_contract_cli(client: &Client, contract: String) {
+    let wallet = wallet();
     let path = format!("{}{}.binary", CONTRACTS, contract);
     let bin = std::fs::read(&path).unwrap();
-    let wallet = wallet();
-    let rlp = do_rlp(client, None, bin, &wallet);
+    let rlp = do_rlp(client, None, bin, &wallet, 0);
     let _accounts = client.emulate(DoTx, &rlp).unwrap().accounts;
     // assert_eq!(accounts.len(), 5);
 }
@@ -58,7 +54,7 @@ async fn call_contract_cli(client: &Client, contract: String, methods: Vec<&str>
     let wallet = wallet();
     //deploy contract
     let bin = std::fs::read(&bin_path).unwrap();
-    let rlp = do_rlp(client, None, bin, &wallet);
+    let rlp = do_rlp(client, None, bin, &wallet, 0);
     client
         .send_transaction(Bytes::from(rlp.clone()))
         .await
@@ -68,7 +64,7 @@ async fn call_contract_cli(client: &Client, contract: String, methods: Vec<&str>
     let abi = abi(&abi_path);
 
     for func in methods {
-        let rlp = do_rlp(client, Some(to), method_id(&abi, &func), &wallet);
+        let rlp = do_rlp(client, Some(to), method_id(&abi, &func), &wallet, 0);
         let _accounts = emulate_do_tx(client, rlp).accounts;
         // assert_eq!(accounts.len(), 3);
     }
@@ -80,7 +76,12 @@ async fn call_contract_cli(client: &Client, contract: String, methods: Vec<&str>
     methods,
     case::storage("Storage", "StorageCaller", vec!["change", "get", "get_local", "add", "get_text", "update_text"]),
 )]
-async fn contract_caller_cli(client: &Client, contract: String, caller: String, methods: Vec<&str>) {
+async fn contract_caller_cli(
+    client: &Client,
+    contract: String,
+    caller: String,
+    methods: Vec<&str>,
+) {
     let bin_path = format!("{CONTRACTS}{contract}.binary");
     let wallet = wallet();
 
@@ -89,7 +90,7 @@ async fn contract_caller_cli(client: &Client, contract: String, caller: String, 
     let to = primitive_types::H160::from_slice(wallet.address().as_bytes());
     let mut ctor = Value::encode(&[Value::Address(to)]);
     bin.append(&mut ctor);
-    let rlp = do_rlp(client, None, bin, &wallet);
+    let rlp = do_rlp(client, None, bin, &wallet, 0);
     client
         .send_transaction(Bytes::from(rlp.clone()))
         .await
@@ -100,7 +101,7 @@ async fn contract_caller_cli(client: &Client, contract: String, caller: String, 
     let abi = abi(&abi_path);
 
     for func in methods {
-        let rlp = do_rlp(&client, Some(to), method_id(&abi, &func), &wallet);
+        let rlp = do_rlp(&client, Some(to), method_id(&abi, &func), &wallet, 0);
         let _accounts = emulate_do_tx(client, rlp).accounts;
         // assert_eq!(accounts.len(), 4);
     }

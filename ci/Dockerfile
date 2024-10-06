@@ -21,7 +21,7 @@ COPY tests/Cargo.toml /opt/tests/
 COPY tests/Cargo.lock /opt/tests/
 
 COPY ./rome-sdk /opt/rome-sdk
-COPY ./rome-evm-private /opt/rome-evm-private
+COPY ./rome-evm /opt/rome-evm
 
 RUN mkdir /opt/bin
 

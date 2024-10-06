@@ -4,7 +4,7 @@ use {
         k256::ecdsa::SigningKey,
         types::{
             transaction::eip2718::TypedTransaction, Address, Eip1559TransactionRequest,
-            NameOrAddress, U256,
+            NameOrAddress, TransactionRequest, U256,
         },
     },
     ethers_signers::{Signer, Wallet},
@@ -13,14 +13,8 @@ use {
 };
 
 #[allow(dead_code)]
-pub fn wallet() -> Wallet<SigningKey> {
-    let mut rng = rand_core::OsRng {};
-    Wallet::new(&mut rng)
-}
-
-#[allow(dead_code)]
 pub fn calc_address(client: &Client, from: &Address) -> Address {
-    let from = ethers_core::types::Address::from_slice(from.as_bytes());
+    let from = Address::from_slice(from.as_bytes());
     let nonce = client.transaction_count(from).unwrap().as_u64();
     let nonce: U256 = nonce.into();
 
@@ -38,8 +32,9 @@ pub fn do_rlp(
     to: Option<Address>,
     data: Vec<u8>,
     wallet: &Wallet<SigningKey>,
+    value: u64,
 ) -> Vec<u8> {
-    let from = ethers_core::types::Address::from_slice(wallet.address().as_bytes());
+    let from = Address::from_slice(wallet.address().as_bytes());
     let nonce = client.transaction_count(from).unwrap().as_u64();
     println!("nonce: {}", nonce);
 
@@ -48,10 +43,38 @@ pub fn do_rlp(
         data: Some(data.into()),
         nonce: Some(nonce.into()),
         chain_id: Some(client.chain_id.into()),
+        value: Some(value.into()),
         ..Default::default()
     };
 
     let tx = TypedTransaction::Eip1559(eip1559);
+    let sig = wallet.sign_transaction_sync(&tx).unwrap();
+    tx.rlp_signed(&sig).to_vec()
+}
+
+#[allow(dead_code)]
+pub fn do_rlp_with_gas(
+    client: &Client,
+    to: Option<Address>,
+    data: Vec<u8>,
+    wallet: &Wallet<SigningKey>,
+    gas: u64,
+) -> Vec<u8> {
+    let from = Address::from_slice(wallet.address().as_bytes());
+    let nonce = client.transaction_count(from).unwrap().as_u64();
+    println!("nonce: {}", nonce);
+
+    let legacy = TransactionRequest {
+        to: to.map(|a| NameOrAddress::Address(Address::from_slice(a.as_bytes()))),
+        data: Some(data.into()),
+        nonce: Some(nonce.into()),
+        chain_id: Some(client.chain_id.into()),
+        gas: Some(gas.into()),
+        gas_price: Some(1.into()),
+        ..Default::default()
+    };
+
+    let tx = TypedTransaction::Legacy(legacy);
     let sig = wallet.sign_transaction_sync(&tx).unwrap();
     tx.rlp_signed(&sig).to_vec()
 }
