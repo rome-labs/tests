@@ -73,10 +73,10 @@ if balance_check "http://127.0.0.1:9090" $evm_address 0; then
 fi
 
 # Run uniswap tests and log output 
-docker run --network="local-env_net" --name="uniswap" -e NETWORK='proxy' romeprotocol/uniswap-v2-core:latest yarn test | tee ../records/proxy-uniswap.txt
+docker run --network="local-env_net" --name="uniswap" -e NETWORK='proxy' romelabs/uniswap-v2-core:latest yarn test | tee ../records/proxy-uniswap.txt
 
 # Run openzeppelin tests and log output 
-docker run --network="local-env_net" --name="openzeppelin" romeprotocol/openzeppelin-contracts:latest -env NETWORK_NAME='proxy' | tee ../records/proxy-zeppelin.txt
+docker run --network="local-env_net" --name="openzeppelin" romelabs/openzeppelin-contracts:latest -env NETWORK_NAME='proxy' | tee ../records/proxy-zeppelin.txt
 
 clear_env
 
@@ -101,10 +101,10 @@ fi
 airdrop
 
 # Run uniswap tests and log output 
-docker run --network="local-env_net" --name="uniswap" -e NETWORK='op-geth' romeprotocol/uniswap-v2-core:latest yarn test | tee ../records/op-geth-uniswap.txt
+docker run --network="local-env_net" --name="uniswap" -e NETWORK='op-geth' romelabs/uniswap-v2-core:latest yarn test | tee ../records/op-geth-uniswap.txt
 
 # Run openzeppelin tests and log output 
-docker run --network="local-env_net" --name="openzeppelin" romeprotocol/openzeppelin-contracts:latest -env NETWORK_NAME='op_geth' | tee ../records/op-geth-zeppelin.txt
+docker run --network="local-env_net" --name="openzeppelin" romelabs/openzeppelin-contracts:latest -env NETWORK_NAME='op_geth' | tee ../records/op-geth-zeppelin.txt
 
 clear_env
 
@@ -124,11 +124,11 @@ airdrop
 
 # Run pair deployments 
 
-docker run --network="local-env_net" -e NETWORK='proxy' -e CHAIN_ID='1001' romeprotocol/uniswap-v2-core:latest yarn deploy:uniswapv2crossrollup
-docker run --network="local-env_net" -e NETWORK='proxy2' -e CHAIN_ID='1002' romeprotocol/uniswap-v2-core:latest yarn deploy:uniswapv2crossrollup
+docker run --network="local-env_net" -e NETWORK='proxy' -e CHAIN_ID='1001' romelabs/uniswap-v2-core:latest yarn deploy:uniswapv2crossrollup
+docker run --network="local-env_net" -e NETWORK='proxy2' -e CHAIN_ID='1002' romelabs/uniswap-v2-core:latest yarn deploy:uniswapv2crossrollup
 
 # Run rome tests and log output 
-docker run --network="local-env_net" --name="rome-tests" -e CROSS_ROLLUP_TESTS=true romeprotocol/tests:latest | tee ../records/rome_tests.txt
+docker run --network="local-env_net" --name="rome-tests" -e CROSS_ROLLUP_TESTS=true romelabs/tests:latest | tee ../records/rome_tests.txt
 
 echo "Stopping tests..."
 

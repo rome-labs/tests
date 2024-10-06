@@ -1,0 +1,26 @@
+name: Workflow to run tests manually
+
+on:
+  workflow_dispatch:
+    inputs:
+      docker_image_tags:
+        description: 'JSON object containing Docker image tags (e.g., {"evm": "latest", "apps": "latest", "geth": "latest", "tests": "latest", "uniswap": "latest", "openzeppelin": "latest"})'
+        required: true
+        default: '{"evm": "latest", "apps": "latest", "geth": "latest", "tests": "latest", "uniswap": "latest", "openzeppelin": "latest"}'
+      tests_list:
+        description: 'Comma-separated list of tests to run (e.g., cross_rollup,uniswap_geth,uniswap_proxy,openzeppelin_geth,openzeppelin_proxy)'
+        required: true
+        default: 'cross_rollup,uniswap_geth,uniswap_proxy'
+      rome_tests_ref_name:
+        description: 'Test repo branch name to use for running the test scripts from'
+        required: true
+        default: 'main'
+
+jobs: 
+  call-reusable-tests:
+    uses: ./.github/workflows/reusable_wf_tests.yml
+    secrets: inherit
+    with:
+      docker_image_tags: ${{ inputs.docker_image_tags }}
+      tests_list: ${{ inputs.tests_list }}
+      rome_tests_ref_name: ${{ inputs.rome_tests_ref_name }}

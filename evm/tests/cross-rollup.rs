@@ -3,9 +3,11 @@ mod shared;
 use {
     rstest::rstest,
     shared::{
-        CROSS_ROLLUP_CONFIG_PATH,
-        transact_token_on_rollup, compose_and_send_tx, get_balance_on_contract,
         config::{load_config, CrossRollupConfig},
+        cross_rollup_fn::{
+            compose_and_send_tx, get_balance_on_contract, transact_token_on_rollup,
+            CROSS_ROLLUP_CONFIG_PATH,
+        },
     },
     tracing::log::info,
 };
@@ -27,7 +29,6 @@ async fn test_cross_rollup_tx() -> Result<(), Box<dyn std::error::Error>> {
     let sender_public_key = &cross_rollup_config.keys.sender_public_key;
     let sender_private_key = &cross_rollup_config.keys.sender_private_key;
     let recipient_public_key = &cross_rollup_config.keys.recipient_public_key;
-    let _recipient_private_key = &cross_rollup_config.keys.recipient_private_key;
     let token_a_contract_address_rollup_1 = &cross_rollup_config.token_a_contract_addresses[0];
     let token_b_contract_address_rollup_1 = &cross_rollup_config.token_b_contract_addresses[0];
     let token_a_contract_address_rollup_2 = &cross_rollup_config.token_a_contract_addresses[1];

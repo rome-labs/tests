@@ -9,10 +9,15 @@ has_container_exited() {
   fi
 }
 
+copy_logs() {
+  LOGS_DIR="../records/openzeppelin-geth-docker-logs"
+  mkdir -p $LOGS_DIR
+  docker-compose ps -q | xargs -I {} sh -c 'docker logs {} > ../records/openzeppelin-geth-docker-logs/$(docker inspect --format="{{.Name}}" {}).log 2>&1'
+}
+
 clear_env() {
-  docker-compose down 
-  docker stop uniswap openzeppelin storage rome-tests
-  docker rm uniswap openzeppelin storage rome-tests
+  copy_logs
+  docker-compose down
 }
 
 airdrop() {
@@ -53,7 +58,7 @@ balance_check() {
 mkdir -p records
 cd ./local-env
 
-docker-compose up -d
+docker-compose up -d solana rome-evm-builder1 proxy geth rhea
 
 until has_container_exited "rome-evm-builder"; do
   sleep 2
@@ -67,7 +72,7 @@ airdrop
 
 echo "Starting Op-Geth tests..."
 
-docker-compose up -d
+docker-compose up -d solana rome-evm-builder1 proxy geth rhea
 
 # Check balance
 if balance_check "http://127.0.0.1:8545" $evm_address 0; then
@@ -75,7 +80,7 @@ if balance_check "http://127.0.0.1:8545" $evm_address 0; then
   exit
 fi
 
-docker run --network="host" --name="openzeppelin" romeprotocol/openzeppelin-contracts:latest -env NETWORK_NAME='op_geth' | tee ../records/op-geth-zeppelin.txt
+docker run --network="local-env_net" --name="openzeppelin" romelabs/openzeppelin-contracts:${OPENZEPPLIN_TAG:-latest} -env NETWORK_NAME='op_geth' | tee ../records/zeppelin-op-geth.txt
 
 clear_env
 

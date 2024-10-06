@@ -9,15 +9,17 @@ has_container_exited() {
   fi
 }
 
-export ROME_EVM_BUILDER_TAG = "v0.1.0"
-export GETH_TAG = "v0.1.0"
-export RHEA_TAG = "v0.1.0"
-export PROXY_TAG = "v0.1.0"
+copy_logs() {
+  LOGS_DIR="../records/cross-rollup-docker-logs"
+  mkdir -p $LOGS_DIR
+  docker-compose ps -q | xargs -I {} sh -c 'docker logs {} > ../records/cross-rollup-docker-logs/$(docker inspect --format="{{.Name}}" {}).log 2>&1'
+}
 
 clear_env() {
+  copy_logs
   docker-compose down 
-  docker stop uniswap openzeppelin storage rome-tests
-  docker rm uniswap openzeppelin storage rome-tests
+  # docker stop rome-tests
+  # docker rm rome-tests
 }
 
 airdrop() {
@@ -60,9 +62,12 @@ cd ./local-env
 
 docker-compose up -d
 
-until has_container_exited "rome-evm-builder"; do
-  sleep 2
-done
+# until has_container_exited "rome-evm-builder"; do
+#   sleep 2
+# done
+
+# mkdir -p evm-container-ids
+# docker-compose ps -q > container-ids/container_ids.txt
 
 airdrop
 
@@ -85,10 +90,10 @@ if balance_check "http://127.0.0.1:9090" $evm_address 0; then
 fi
 
 # Run pair deployments 
-docker run --network="local-env_net" -e NETWORK='proxy' -e CHAIN_ID='1001' romeprotocol/uniswap-v2-core:latest yarn deploy:uniswapv2crossrollup
-docker run --network="local-env_net" -e NETWORK='proxy2' -e CHAIN_ID='1002' romeprotocol/uniswap-v2-core:latest yarn deploy:uniswapv2crossrollup
+docker run --network="local-env_net" -e NETWORK='proxy' -e CHAIN_ID='1001' romelabs/uniswap-v2-core:${UNISWAP_V2_TAG:-latest} yarn deploy:uniswapv2crossrollup
+docker run --network="local-env_net" -e NETWORK='proxy2' -e CHAIN_ID='1002' romelabs/uniswap-v2-core:${UNISWAP_V2_TAG:-latest} yarn deploy:uniswapv2crossrollup
 
-docker run --network="local-env_net" --name="rome-tests" -e CROSS_ROLLUP_TESTS=true romeprotocol/tests:latest | tee ../records/rome_tests.txt
+docker run --network="local-env_net" --name="rome-tests" -e CROSS_ROLLUP_TESTS=true romelabs/tests:${ROME_TESTS_TAG:-latest} | tee ../records/rome_tests.txt
 
 clear_env
 

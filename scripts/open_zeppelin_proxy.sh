@@ -9,10 +9,15 @@ has_container_exited() {
   fi
 }
 
+copy_logs() {
+  LOGS_DIR="../records/openzeppelin-proxy-docker-logs"
+  mkdir -p $LOGS_DIR
+  docker-compose ps -q | xargs -I {} sh -c 'docker logs {} > ../records/openzeppelin-proxy-docker-logs/$(docker inspect --format="{{.Name}}" {}).log 2>&1'
+}
+
 clear_env() {
-  docker-compose down 
-  docker stop uniswap openzeppelin storage rome-tests
-  docker rm uniswap openzeppelin storage rome-tests
+  copy_logs
+  docker-compose down
 }
 
 airdrop() {
@@ -53,7 +58,7 @@ balance_check() {
 mkdir -p records
 cd ./local-env
 
-docker-compose up -d
+docker-compose up -d solana rome-evm-builder1 proxy rhea
 
 until has_container_exited "rome-evm-builder"; do
   sleep 2
@@ -73,7 +78,7 @@ if balance_check "http://127.0.0.1:9090" $evm_address 0; then
   exit
 fi
 
-docker run --network="local-env_net" --name="openzeppelin" romeprotocol/openzeppelin-contracts:latest -env NETWORK_NAME='proxy' | tee ../records/proxy-zeppelin.txt
+docker run --network="local-env_net" --name="openzeppelin" romelabs/openzeppelin-contracts:${OPENZEPPLIN_TAG:-latest} -env NETWORK_NAME='proxy' | tee ../records/zeppelin-proxy.txt
 
 clear_env
 
