@@ -1,5 +1,14 @@
 #!/bin/bash
 
+has_container_exited() {
+  local container_name="$1"
+  if [ -n "$(docker ps -a --filter "name=${container_name}" --filter "status=exited" -q)" ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
 copy_logs() {
   LOGS_DIR="../records/uniswap-geth-docker-logs"
   mkdir -p $LOGS_DIR
@@ -12,17 +21,27 @@ clear_env() {
 }
 
 airdrop() {
-  docker cp rhea-sender.json solana:./
-  docker cp proxy-sender.json solana:./
-  docker cp ../ci/rome-owner-keypair.json solana:./
-  docker cp ../ci/test-account-keypair.json solana:./
-  docker cp ../ci/rollup-tx-payer.json solana:./
+  docker cp ./keys/rhea-sender.json solana:./
+  docker cp ./keys/proxy-sender.json solana:./
+  docker cp ./keys/rollup-owner-keypair.json solana:./
+  docker cp ./keys/test-account-keypair.json solana:./
+  docker cp ./keys/upgrade-authority-keypair.json solana:./
 
   docker exec solana solana -u http://localhost:8899 airdrop 10000 ./proxy-sender.json
   docker exec solana solana -u http://localhost:8899 airdrop 10000 ./rhea-sender.json
-  docker exec solana solana -u http://localhost:8899 airdrop 10000 ./rome-owner-keypair.json
+  docker exec solana solana -u http://localhost:8899 airdrop 10000 ./rollup-owner-keypair.json
   docker exec solana solana -u http://localhost:8899 airdrop 10000 ./test-account-keypair.json
-  docker exec solana solana -u http://localhost:8899 airdrop 10000 ./rollup-tx-payer.json
+  docker exec solana solana -u http://localhost:8899 airdrop 10000 ./upgrade-authority-keypair.json
+
+  docker-compose up -d reg_rollup
+  until has_container_exited "reg_rollup"; do
+    sleep 2
+  done
+
+  docker-compose up -d create_balance
+  until has_container_exited "create_balance"; do
+    sleep 2
+  done
 
   curl --location 'http://localhost:3000/airdrop' --header 'Content-Type: application/json' --data '{"recipientAddr": "0xa3349dE31ECd7fd9413e1256b6472a68c920D186", "amount": "100.0"}'
   curl --location 'http://localhost:3000/airdrop' --header 'Content-Type: application/json' --data '{"recipientAddr": "0x6970d087e7e78A13Ea562296edb05f4BB64D5c2E", "amount": "100.0"}'
@@ -51,14 +70,17 @@ balance_check() {
 
 
 mkdir -p records
-cd ./local-env
+touch ./records/uniswap-op-geth.txt
+cd ./ci
 
-docker-compose up -d solana rome-evm-builder1 proxy geth rhea
+docker-compose up -d solana proxy geth rhea
 
 # Wait while geth started
 sleep 15
 
 airdrop
+
+
 
 #################
 # Op Geth Tests #
@@ -69,10 +91,10 @@ echo "Starting Op Geth tests..."
 # Check balance
 if balance_check "http://127.0.0.1:9090" $evm_address 0; then
   echo "Insufficient proxy balance, exiting..."
-  exit
+  exit 1
 fi
 
-docker run --network="local-env_net" --name="uniswap" -e NETWORK='op-geth' -e CHAIN_ID='1001' romelabs/uniswap-v2-core:${UNISWAP_V2_TAG:-latest} yarn test | tee ../records/uniswap-op-geth.txt
+docker run --network="ci_net" --name="uniswap" -e NETWORK='op-geth' -e CHAIN_ID='1001' romelabs/uniswap-v2-core:${UNISWAP_V2_TAG:-latest} yarn test | tee ../records/uniswap-op-geth.txt
 
 clear_env
 

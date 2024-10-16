@@ -10,9 +10,9 @@ on:
         default: '{"evm": "latest", "apps": "latest", "geth": "latest", "tests": "latest", "uniswap": "latest", "openzeppelin": "latest"}'
       tests_list:
         type: string
-        description: 'Comma-separated list of tests to run (e.g., cross_rollup,uniswap_geth,uniswap_proxy,openzeppelin_geth,openzeppelin_proxy)'
+        description: 'Comma-separated list of tests to run (e.g., tests,uniswap_geth,uniswap_proxy,openzeppelin_geth,openzeppelin_proxy)'
         required: true
-        default: 'cross_rollup'
+        default: 'tests,uniswap_proxy,uniswap_geth'
       rome_tests_ref_name:
         type: string
         description: 'Test repo branch name to use for running the tests'
@@ -39,11 +39,12 @@ jobs:
           openzeppelin_ver=$(echo "$docker_image_tags" | jq -r '.openzeppelin // "latest"')
 
           # Export environment variables to be available to subsequent steps
-          echo "ROME_EVM_BUILDER_TAG=$evm_ver" >> $GITHUB_ENV
+          echo "ROME_EVM_TAG=$evm_ver" >> $GITHUB_ENV
           echo "GETH_TAG=$geth_ver" >> $GITHUB_ENV
           echo "RHEA_TAG=$apps_ver" >> $GITHUB_ENV
           echo "PROXY_TAG=$apps_ver" >> $GITHUB_ENV
-          echo "ROME_TESTS_TAG=$tests_ver" >> $GITHUB_ENV
+          echo "CLI_TAG=$apps_ver" >> $GITHUB_ENV
+          echo "TESTS_TAG=$tests_ver" >> $GITHUB_ENV
           echo "UNISWAP_V2_TAG=$uniswap_ver" >> $GITHUB_ENV
           echo "OPENZEPPELIN_TAG=$openzeppelin_ver" >> $GITHUB_ENV
 
@@ -52,7 +53,7 @@ jobs:
           IFS=',' read -r -a tests <<< "$tests_list"
 
           # Initialize all test flags to false
-          CROSS_ROLLUP=false
+          TESTS=false
           UNISWAP_GETH=false
           UNISWAP_PROXY=false
           OPENZEPPELIN_GETH=false
@@ -62,8 +63,8 @@ jobs:
           for test in "${tests[@]}"
           do
             case "$test" in
-              cross_rollup)
-                CROSS_ROLLUP=true
+              tests)
+                TESTS=true
                 ;;
               uniswap_geth)
                 UNISWAP_GETH=true
@@ -81,13 +82,13 @@ jobs:
           done
 
           # Write test flags to $GITHUB_ENV for use in subsequent steps
-          echo "CROSS_ROLLUP_TESTS=$CROSS_ROLLUP" >> $GITHUB_ENV
+          echo "TESTS=$TESTS" >> $GITHUB_ENV
           echo "UNISWAP_GETH_TESTS=$UNISWAP_GETH" >> $GITHUB_ENV
           echo "UNISWAP_PROXY_TESTS=$UNISWAP_PROXY" >> $GITHUB_ENV
           echo "OPENZEPPELIN_GETH_TESTS=$OPENZEPPELIN_GETH" >> $GITHUB_ENV
           echo "OPENZEPPELIN_PROXY_TESTS=$OPENZEPPELIN_PROXY" >> $GITHUB_ENV
 
-          echo "ROME_TESTS_REF_NAME=${{ inputs.rome_tests_ref_name || 'main' }}" >> $GITHUB_ENV
+          echo "TESTS_REF_NAME=${{ inputs.rome_tests_ref_name || 'main' }}" >> $GITHUB_ENV
 
           echo "---------------------------ENVIRONMENT VARIABLES-------------------------------------"
           cat $GITHUB_ENV
@@ -98,7 +99,7 @@ jobs:
         with:
           repository: rome-labs/tests
           path: tests
-          ref: ${{env.ROME_TESTS_REF_NAME || 'main'}}
+          ref: ${{env.TESTS_REF_NAME || 'main'}}
           token: ${{ secrets.GIT_ROLLUP_TOKEN }}
 
       - name: Install Compose
@@ -113,15 +114,26 @@ jobs:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
 
-      - name: 'Run Cross rollup tests'
-        if: env.CROSS_ROLLUP_TESTS == 'true'
+      - name: 'Run EVM tests'
+        if: env.TESTS == 'true'
         run: |
           docker ps -aq | xargs -r docker stop | xargs -r docker rm || true
           docker volume prune -f
           cd tests
           ls -l
-          chmod +x ./scripts/cross_rollup.sh
-          ./scripts/cross_rollup.sh
+          chmod +x ./ci/scripts/tests.sh
+          ./ci/scripts/tests.sh
+        shell: bash
+
+      - name: 'Run State Comparison tests'
+        if: env.TESTS == 'true'
+        run: |
+          docker ps -aq | xargs -r docker stop | xargs -r docker rm || true
+          docker volume prune -f
+          cd tests
+          ls -l
+          chmod +x ./ci/scripts/state_comparison.sh
+          ./ci/scripts/state_comparison.sh
         shell: bash
 
       - name: 'Run uniswap geth tests'
@@ -131,8 +143,8 @@ jobs:
           docker volume prune -f
           cd tests
           ls -l
-          chmod +x ./scripts/uniswap_op_geth.sh
-          ./scripts/uniswap_op_geth.sh
+          chmod +x ./ci/scripts/uniswap_op_geth.sh
+          ./ci/scripts/uniswap_op_geth.sh
         shell: bash
 
       - name: 'Run uniswap proxy tests'
@@ -142,8 +154,8 @@ jobs:
           docker volume prune -f
           cd tests
           ls -l
-          chmod +x ./scripts/uniswap_proxy.sh
-          ./scripts/uniswap_proxy.sh
+          chmod +x ./ci/scripts/uniswap_proxy.sh
+          ./ci/scripts/uniswap_proxy.sh
         shell: bash
 
       - name: 'Run openzeppelin geth tests'
@@ -153,8 +165,8 @@ jobs:
           docker volume prune -f
           cd tests
           ls -l
-          chmod +x ./scripts/open_zeppelin_op_geth.sh
-          ./scripts/open_zeppelin_op_geth.sh
+          chmod +x ./ci/scripts/open_zeppelin_op_geth.sh
+          ./ci/scripts/open_zeppelin_op_geth.sh
         shell: bash
 
       - name: 'Run openzeppelin proxy tests'
@@ -164,20 +176,20 @@ jobs:
           docker volume prune -f
           cd tests
           ls -l
-          chmod +x ./scripts/open_zeppelin_proxy.sh
-          ./scripts/open_zeppelin_proxy.sh
+          chmod +x ./ci/scripts/open_zeppelin_proxy.sh
+          ./ci/scripts/open_zeppelin_proxy.sh
         shell: bash
 
       - name: 'Generate test reports'
         run: |
           cd tests
-          chmod +x ./scripts/generate_ctrf.sh
-          ./scripts/generate_ctrf.sh
+          chmod +x ./ci/scripts/generate_ctrf.sh
+          ./ci/scripts/generate_ctrf.sh
           echo "Test resuls file content:"
           ls -l
           ls -l records
           cat records/test_results.json
-          cat records/rome_tests.txt
+          cat records/tests.txt
         shell: bash
 
       - name: 'Send test results to Slack'

@@ -1,0 +1,12 @@
+chain_id: 1001
+start_slot: 0
+solana:
+  rpc_url: "http://solana:8899"
+  commitment: "confirmed"
+program_keypair: "/opt/ci/keys/rome-keypair.json"
+payer_keypair: "/opt/ci/keys/test-account-keypair.json"
+upgrade_authority_keypair: "/opt/ci/keys/upgrade-authority-keypair.json"
+rollup_owner_keypair: "/opt/ci/keys/rollup-owner-keypair.json"
+rhea_sender_keypair: "/opt/ci/keys/rhea-sender.json"
+number_holders: 256
+proxy_host: "0.0.0.0:9090"

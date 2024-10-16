@@ -8,9 +8,9 @@ on:
         required: true
         default: '{"evm": "latest", "apps": "latest", "geth": "latest", "tests": "latest", "uniswap": "latest", "openzeppelin": "latest"}'
       tests_list:
-        description: 'Comma-separated list of tests to run (e.g., cross_rollup,uniswap_geth,uniswap_proxy,openzeppelin_geth,openzeppelin_proxy)'
+        description: 'Comma-separated list of tests to run (e.g., tests,uniswap_geth,uniswap_proxy,openzeppelin_geth,openzeppelin_proxy)'
         required: true
-        default: 'cross_rollup,uniswap_geth,uniswap_proxy'
+        default: 'tests,uniswap_geth,uniswap_proxy'
       rome_tests_ref_name:
         description: 'Test repo branch name to use for running the test scripts from'
         required: true

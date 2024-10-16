@@ -4,8 +4,10 @@ output_file="records/test_results.json"
 output=""
 total_passed=0
 total_failed=0
+total_skipped=0   
 total_global_passed=0
 total_global_failed=0
+total_global_skipped=0 
 
 test_suites=(
     "UniswapV2ERC20"
@@ -120,14 +122,25 @@ for input_file in records/*.txt; do
     current_subsuite=""
     case=$(basename "${input_file%.txt}")
 
-    if [[ $input_file == *rome_tests* ]]; then
+    if [ ! -s "$input_file" ]; then
+        echo "File $input_file is empty. Skipping..."
+        total_skipped=1
+        total_global_skipped=$((total_global_skipped + 1))
+        continue
+    fi
+
+    tests_found=false
+
+    if [[ $input_file == *tests* ]]; then
         while IFS= read -r line; do
             if [[ "$line" == *" ... ok" ]]; then
                 total_global_passed=$((total_global_passed + 1))
+                tests_found=true
             fi
 
             if [[ "$line" == *" ... FAILED" ]]; then
                 total_global_failed=$((total_global_failed + 1))
+                tests_found=true
             fi
 
             if [[ ! $line =~ ^test[[:space:]][^[:space:]]+::case_[0-9]+_[^[:space:]]+[[:space:]]+\.\.\.[[:space:]]+(ok|FAILED)$ ]]; then
@@ -159,9 +172,11 @@ for input_file in records/*.txt; do
     else
         while IFS= read -r line; do        
             if [[ $line =~ ^[[:space:]]*[0-9]+[[:space:]]+passing ]]; then
+                tests_found=true
                 total_passed=$(echo "$line" | awk '{print $1}')
                 total_global_passed=$((total_global_passed + total_passed))
             elif [[ $line =~ ^[[:space:]]*[0-9]+[[:space:]]+failing ]]; then
+                tests_found=true
                 total_failed=$(echo "$line" | awk '{print $1}')
                 total_global_failed=$((total_global_failed + total_failed))
                 break
@@ -201,6 +216,11 @@ for input_file in records/*.txt; do
         done < "$input_file"
     fi
 
+    if [ "$tests_found" = false ]; then
+        total_skipped=1
+        total_global_skipped=$((total_global_skipped + 1))
+    fi
+
 done
 
 
@@ -216,7 +236,7 @@ final_output=$(printf '{
       "passed": %d,
       "failed": %d,
       "pending": 0,
-      "skipped": 0,
+      "skipped": %d,
       "other": 0,
       "suites": 2,
       "start": %d,
@@ -224,7 +244,7 @@ final_output=$(printf '{
     },
     "tests": %s
   }
-}' "$total_tests" "$total_global_passed" "$total_global_failed" "$start_time" "$stop_time" "$output")
+}' "$total_tests" "$total_global_passed" "$total_global_failed" "total_global_skipped" "$start_time" "$stop_time" "$output")
 
 echo "$final_output" > "$output_file"
 echo "Test results saved to $output_file"

@@ -1,79 +1,83 @@
 mod shared;
 
-use rome_evm_client::emulator;
-use {
-    ethereum_abi::Value,
-    ethers::prelude::k256::ecdsa::SigningKey,
-    ethers_core::types::{Address, Bytes},
-    ethers_signers::Signer as EthSigner,
-    ethers_signers::Wallet,
-    primitive_types::H160,
-    rome_evm_client::{
-        emulator::{Instruction, Instruction::RegSigner},
-        RomeEVMClient as Client,
-    },
-    rstest::*,
-    shared::{
-        client_config,
-        fixture::{client, owner_wallet},
-        tx::{abi, calc_address, do_rlp, do_rlp_with_gas, method_id},
-        wallet, CONTRACTS, CREATE_BALANCE_VALUE,
-    },
-    solana_sdk::{
-        signature::{read_keypair_file, Signer},
-        transaction::Transaction,
-    },
-    std::path::Path,
+use ethereum_abi::Value;
+use ethers_signers::{Signer as EthSigner,};
+use primitive_types::H160;
+use rome_sdk::rome_evm_client::emulator::Instruction;
+use rstest::*;
+use shared::{
+    fixture::client, client::Client,
+    tx::{abi, do_tx, method_id},
+    wallet, CONTRACTS,
 };
 
 #[rstest(
     contract,
-    case::hello_world("HelloWorld"),
-    case::storage("Storage"),
-    case::storage_standard("StorageStandard")
+    tx_type,
+    case::hello_world("HelloWorld", vec![0, 2]),
+    case::touch_storage("TouchStorage", vec![0, 2]),
 )]
-async fn deploy_contract(client: &Client, contract: String) {
-    let path = format!("{}{}.binary", CONTRACTS, contract);
-    let bin = std::fs::read(&path).unwrap();
+#[serial_test::serial]
+async fn evm_deploy(client: &Client, contract: String, tx_type: Vec<u8>) {
     let wallet = wallet();
-    let rlp = do_rlp(&client, None, bin, &wallet, 0);
-    client
-        .send_transaction(Bytes::from(rlp.clone()))
-        .await
-        .unwrap();
+
+    client.airdrop(wallet.address(), 1_000_000_000_000).await;
+    for typ in tx_type {
+        client.deploy(&contract, &wallet, None, typ).await;
+    }
 }
 
 #[rstest(
     contract,
     methods,
-    case::storage("Storage", vec!["change", "get", "get_local", "add", "get_text", "update_text", "deploy"]),
-    case::storage_standard("StorageStandard", vec!["store(uint256 1)", "retrieve"]),
-    case::storage_standard("StorageStandard", vec!["store(uint256 2)", "retrieve"]),
-    case::update_storage("UpdateStorage", vec!["update"]),
+    eth_calls,
+    results,
+    case::touch_storage(
+        "TouchStorage",
+        vec![
+            "set_value(uint256 10)",
+            "push_vec(uint256 3)",
+            "push_vec(uint256 4)",
+            "set_text(string hello)",
+            "deploy",
+        ],
+        vec![
+            "get_value",
+            "get_vec(uint256 0)",
+            "get_vec(uint256 1)",
+            "get_text",
+            "get_local",
+        ],
+        vec![
+            "000000000000000000000000000000000000000000000000000000000000000a",
+            "0000000000000000000000000000000000000000000000000000000000000003",
+            "0000000000000000000000000000000000000000000000000000000000000004",
+            "0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000568656c6c6f000000000000000000000000000000000000000000000000000000",
+            "0000000000000000000000000000000000000000000000000000000000000005",
+        ]
+    ),
 )]
-async fn call_contract(client: &Client, contract: String, methods: Vec<&str>) {
-    let bin_path = format!("{}{}.binary", CONTRACTS, contract);
-    let abi_path = format!("{}{}.abi", CONTRACTS, contract);
-
-    // calc "from" address
+#[serial_test::serial]
+async fn evm_call(
+    client: &Client,
+    contract: String,
+    methods: Vec<&str>,
+    eth_calls: Vec<&str>,
+    results: Vec<&str>,
+) {
     let wallet = wallet();
-    //deploy contract
-    let bin = std::fs::read(&bin_path).unwrap();
-    let rlp = do_rlp(&client, None, bin, &wallet, 0);
-    client
-        .send_transaction(Bytes::from(rlp.clone()))
-        .await
-        .unwrap();
-
-    let to = calc_address(&client, &wallet.address());
-    let abi = abi(&abi_path);
-
-    for func in methods {
-        let rlp = do_rlp(&client, Some(to), method_id(&abi, &func), &wallet, 0);
-        client
-            .send_transaction(Bytes::from(rlp.clone()))
-            .await
-            .unwrap();
+    client.airdrop(wallet.address(), 1_000_000_000_000).await;
+    // deploy contract
+    let address = client.deploy(&contract, &wallet, None, 2).await;
+    // update storage
+    for method in methods {
+        client.method_call(&contract, &address, method, &wallet, 2).await
+    }
+    // call eth_calls to check the results
+    for (eth_call, expected_hex) in eth_calls.iter().zip(results) {
+        let result = client.eth_call(&contract, &address, eth_call, &wallet);
+        let expected = hex::decode(expected_hex).unwrap();
+        assert_eq!(result.to_vec(), expected);
     }
 }
 
@@ -81,128 +85,141 @@ async fn call_contract(client: &Client, contract: String, methods: Vec<&str>) {
     contract,
     caller,
     methods,
-    case::storage("Storage", "StorageCaller", vec!["change", "get", "get_local", "add", "get_text", "update_text"]),
+    eth_calls,
+    results,
+    case::touch_storage(
+        "TouchStorage",
+        "NestedCall",
+        vec![
+            "set_value(uint256 10)",
+            "push_vec(uint256 3)",
+            "push_vec(uint256 4)",
+            "set_text(string hello)",
+            "deploy",
+        ],
+        vec![
+            "get_value",
+            "get_vec(uint256 0)",
+            "get_vec(uint256 1)",
+            "get_text",
+            "get_local",
+            "text",
+        ],
+        vec![
+            "000000000000000000000000000000000000000000000000000000000000000a",
+            "0000000000000000000000000000000000000000000000000000000000000003",
+            "0000000000000000000000000000000000000000000000000000000000000004",
+            "0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000568656c6c6f000000000000000000000000000000000000000000000000000000",
+            "0000000000000000000000000000000000000000000000000000000000000005",
+            "0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000c48656c6c6f5f776f726c64210000000000000000000000000000000000000000"
+        ]
+    ),
 )]
-async fn contract_caller(client: &Client, contract: String, caller: String, methods: Vec<&str>) {
-    let bin_path = format!("{CONTRACTS}{contract}.binary");
-    // calc "from" address
+#[serial_test::serial]
+async fn evm_nested_call(
+    client: &Client,
+    contract: String,
+    caller: String,
+    methods: Vec<&str>,
+    eth_calls: Vec<&str>,
+    results: Vec<&str>,
+) {
     let wallet = wallet();
-    //deploy contract
-    let mut bin = std::fs::read(&bin_path).unwrap();
-    let to = H160::from_slice(wallet.address().as_bytes());
-    let mut ctor = Value::encode(&[Value::Address(to)]);
-    bin.append(&mut ctor);
-    let rlp = do_rlp(&client, None, bin, &wallet, 0);
-    client
-        .send_transaction(Bytes::from(rlp.clone()))
-        .await
-        .unwrap();
-
-    let abi_path = format!("{CONTRACTS}{caller}.abi");
-    let to = calc_address(&client, &wallet.address());
-    let abi = abi(&abi_path);
-
-    for func in methods {
-        let rlp = do_rlp(&client, Some(to), method_id(&abi, &func), &wallet, 0);
-        client
-            .send_transaction(Bytes::from(rlp.clone()))
-            .await
-            .unwrap();
+    client.airdrop(wallet.address(), 1_000_000_000_000).await;
+    // deploy contract
+    let contract_addr = client.deploy(&contract, &wallet, None, 2).await;
+    // deploy caller
+    let ctor = Value::encode(&[Value::Address(H160::from_slice(contract_addr.as_bytes()))]);
+    let caller_addr = client.deploy(&caller, &wallet, Some(ctor), 2).await;
+    // call nested contract's methods
+    for method in methods {
+        client.method_call(&caller, &caller_addr, method, &wallet, 2).await
+    }
+    // call eth_calls to check the results
+    for (eth_call, expected_hex) in eth_calls.iter().zip(results) {
+        let result = client.eth_call(&caller, &caller_addr, eth_call, &wallet);
+        let expected = hex::decode(expected_hex).unwrap();
+        assert_eq!(result.to_vec(), expected);
     }
 }
 
-async fn airdrop(
+#[rstest(
+    contract,
+    methods,
+    tx_type,
+    case::storage("AtomicIterative", vec!["atomic", "iterative"], 0),
+    case::storage("AtomicIterative", vec!["atomic", "iterative"], 2),
+)]
+#[serial_test::serial]
+async fn evm_gas_transfer(
     client: &Client,
-    owner: &Wallet<SigningKey>,
-    user: &Wallet<SigningKey>,
-    value: u64,
-) {
-    let to = Address::from_slice(user.address().as_bytes());
-    let rlp = do_rlp(&client, Some(to), vec![], &owner, value);
-    client
-        .send_transaction(Bytes::from(rlp.clone()))
-        .await
-        .unwrap();
-}
-
-#[rstest(contract, gas_estimate, case::storage("Storage", 1))]
-async fn gas_transfer(
-    client: &Client,
-    owner_wallet: &Wallet<SigningKey>,
     contract: String,
-    gas_estimate: u64,
+    methods: Vec<&str>,
+    tx_type: u8
 ) {
-    let user = wallet();
-    let user_addr = Address::from_slice(user.address().as_bytes());
-    let owner_addr = Address::from_slice(owner_wallet.address().as_bytes());
-    let random = wallet();
-    let gas_recipient = Address::from_slice(&random.address().as_bytes());
+    let wallet = wallet();
+    client.airdrop(wallet.address(), 1_000_000_000_000).await;
 
-    assert!(gas_estimate <= CREATE_BALANCE_VALUE);
-    assert_eq!(
-        CREATE_BALANCE_VALUE,
-        client.get_balance(owner_addr).unwrap().as_u64()
-    );
+    // deploy contract
+    let address = client.deploy(&contract, &wallet, None, tx_type).await;
+    let abi = abi(&format!("{}{}.abi", CONTRACTS, contract));
 
-    airdrop(client, owner_wallet, &user, gas_estimate).await;
+    // call methods and compare the estimate gas with gas_transfer
+    for method in methods {
+        let tx = do_tx(client, Some(address), method_id(&abi, method), &wallet, 0, tx_type);
 
-    assert_eq!(
-        gas_estimate,
-        client.get_balance(user_addr).unwrap().as_u64()
-    );
-    assert_eq!(
-        CREATE_BALANCE_VALUE - gas_estimate,
-        client.get_balance(owner_addr).unwrap().as_u64()
-    );
+        let before = client.get_balance(wallet.address()).unwrap();
+        client.method_call(&contract, &address, method, &wallet, tx_type).await;
+        let after = client.get_balance(wallet.address()).unwrap();
 
-    client.reg_gas_recipient(gas_recipient.clone()).unwrap();
+        let estimage_gas = tx.gas().unwrap();
+        let gas_transfer = before.checked_sub(after).unwrap();
 
-    assert_eq!(0, client.get_balance(gas_recipient).unwrap().as_u64());
+        assert!(gas_transfer >= 0.into());
+        assert!(gas_transfer <= *estimage_gas);
+    }
 
-    let path = format!("{}{}.binary", CONTRACTS, contract);
-    let bin = std::fs::read(&path).unwrap();
-    let rlp = do_rlp_with_gas(&client, None, bin, &user, gas_estimate);
-    client
-        .send_transaction(Bytes::from(rlp.clone()))
-        .await
-        .unwrap();
-
-    assert_eq!(
-        gas_estimate,
-        client.get_balance(gas_recipient).unwrap().as_u64()
-    );
-    assert_eq!(0, client.get_balance(user_addr).unwrap().as_u64());
 }
 
-#[rstest(contract, case::hello_world("HelloWorld"))]
-async fn get_storage_at(client: &Client, contract: String) {
-    let path = format!("{}{}.binary", CONTRACTS, contract);
-    let bin = std::fs::read(&path).unwrap();
+#[rstest(
+    contract,
+    method,
+    tx_type,
+    case::get_storage_at("GetStorageAt", "get", 0),
+    case::get_storage_at("GetStorageAt", "get", 2),
+)]
+#[serial_test::serial]
+async fn evm_get_storage_at(client: &Client, contract: String, method: String, tx_type: u8) {
     let wallet = wallet();
-    let rlp = do_rlp(&client, None, bin, &wallet, 0);
+    client.airdrop(wallet.address(), 1_000_000_000_000).await;
 
-    let contract_addr = calc_address(client, &wallet.address());
-    let emulation = client.emulate(Instruction::DoTx, &rlp).unwrap();
-    client
-        .send_transaction(Bytes::from(rlp.clone()))
-        .await
-        .unwrap();
+    // deploy contract
+    let address = client.deploy(&contract, &wallet, None, tx_type).await;
 
+    // emulate the call of the contract method
+    let abi = abi(&format!("{}{}.abi", CONTRACTS, contract));
+    let tx = do_tx(client, Some(address), method_id(&abi, &method), &wallet, 0, tx_type);
+    let sig = wallet.sign_transaction_sync(&tx).unwrap();
+    let rlp = tx.rlp_signed(&sig);
+    let emulation = client.emulate(Instruction::DoTx, &rlp, &client.get_payer_pubkey()).unwrap();
+
+    // parse the emulation report
     assert_eq!(emulation.storage.len(), 1);
     let (slot_addr, slots) = emulation.storage.first_key_value().unwrap();
-    assert_eq!(*slot_addr, evm::H160::from_slice(contract_addr.as_bytes()));
+    assert_eq!(*slot_addr, evm::H160::from_slice(address.as_bytes()));
     assert_eq!(slots.len(), 1);
     let (slot, rw) = slots.first_key_value().unwrap();
     assert_eq!(*slot, evm::U256::zero());
-    assert_eq!(*rw, true);
+    assert_eq!(*rw, false);
 
     let mut buf = [0u8; 32];
     slot.to_big_endian(&mut buf);
     let slot = ethers_core::types::U256::from_big_endian(&buf);
     let addr = ethers_core::types::H160::from_slice(slot_addr.as_bytes());
 
-
+    // load the storage slot from chain
     let slot_value = client.eth_get_storage_at(addr, slot).unwrap();
 
+    // check storage slot value
     assert_eq!(slot_value, 7.into());
 }

@@ -21,17 +21,17 @@ clear_env() {
 }
 
 airdrop() {
-  docker cp rhea-sender.json solana:./
-  docker cp proxy-sender.json solana:./
-  docker cp ../ci/rome-owner-keypair.json solana:./
-  docker cp ../ci/test-account-keypair.json solana:./
-  docker cp ../ci/rollup-tx-payer.json solana:./
+  docker cp ./keys/rhea-sender.json solana:./
+  docker cp ./keys/proxy-sender.json solana:./
+  docker cp ./keys/rollup-owner-keypair.json solana:./
+  docker cp ./keys/test-account-keypair.json solana:./
+  docker cp ./keys/upgrade-authority-keypair.json solana:./
 
   docker exec solana solana -u http://localhost:8899 airdrop 10000 ./proxy-sender.json
   docker exec solana solana -u http://localhost:8899 airdrop 10000 ./rhea-sender.json
-  docker exec solana solana -u http://localhost:8899 airdrop 10000 ./rome-owner-keypair.json
+  docker exec solana solana -u http://localhost:8899 airdrop 10000 ./rollup-owner-keypair.json
   docker exec solana solana -u http://localhost:8899 airdrop 10000 ./test-account-keypair.json
-  docker exec solana solana -u http://localhost:8899 airdrop 10000 ./rollup-tx-payer.json
+  docker exec solana solana -u http://localhost:8899 airdrop 10000 ./upgrade-authority-keypair.json
 }
 
 evm_address="0x768b73EE6CA9e0A1bc32868CA65dB89E44696DD8"
@@ -56,15 +56,23 @@ balance_check() {
 
 
 mkdir -p records
-cd ./local-env
+touch ./records/zeppelin-proxy.txt
+cd ./ci
 
-docker-compose up -d solana rome-evm-builder1 proxy rhea
+docker-compose up -d solana proxy
 
-until has_container_exited "rome-evm-builder"; do
+airdrop
+
+docker-compose up -d reg_rollup
+until has_container_exited "reg_rollup"; do
   sleep 2
 done
 
-airdrop
+docker-compose up -d create_balance
+until has_container_exited "create_balance"; do
+  sleep 2
+done
+
 
 ###############
 # Proxy Tests #
@@ -75,10 +83,10 @@ echo "Starting Proxy tests..."
 # Check balance
 if balance_check "http://127.0.0.1:9090" $evm_address 0; then
   echo "Insufficient proxy balance, exiting..."
-  exit
+  exit 1
 fi
 
-docker run --network="local-env_net" --name="openzeppelin" romelabs/openzeppelin-contracts:${OPENZEPPLIN_TAG:-latest} -env NETWORK_NAME='proxy' | tee ../records/zeppelin-proxy.txt
+docker run --network="ci_net" --name="openzeppelin" romelabs/openzeppelin-contracts:${OPENZEPPLIN_TAG:-latest} -env NETWORK_NAME='proxy' | tee ../records/zeppelin-proxy.txt
 
 clear_env
 

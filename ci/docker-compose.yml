@@ -1,14 +1,10 @@
-version: "3"
-
 services:
-  # Solana validator
   solana:
     container_name: solana
-    image: solanalabs/solana:v1.18.17
+    image: romelabs/rome-evm:${ROME_EVM_TAG:-latest}
     environment:
       RUST_LOG: solana_runtime::system_instruction_processor=debug,solana_runtime::message_processor=debug,solana_bpf_loader=debug,solana_rbpf=debug
     hostname: solana
-    command: /usr/bin/solana-run.sh
     ports:
       - 8899:8899
       - 9900:9900
@@ -29,46 +25,42 @@ services:
       retries: 10
       start_period: 10s
 
-  # Builds Rome-EVM binary with selected parameters and deploys it
-  rome-evm-builder1:
-    container_name: rome-evm-builder1
-    image: romelabs/rome-evm-builder:${ROME_EVM_BUILDER_TAG:-latest}
+  reg_rollup:
+    container_name: reg_rollup
+    image: romelabs/rome-apps:${CLI_TAG:-latest}
     environment:
-      SOLANA_RPC: http://solana:8899
+      SERVICE_NAME: cli.sh
       CHAIN_ID: 1001
-      ROME_EVM_KEYPAIR: /opt/rome-keypair1.json
-      CONTRACT_OWNER_KEYPAIR: /opt/rome-evm-owner.json
-      MINT_TO: 0x768b73EE6CA9e0A1bc32868CA65dB89E44696DD8
-      MINT_AMOUNT: '1000000000000000000000'
+      PROGRAM_KEYPAIR: /opt/rome-keypair.json
+      SOLANA_RPC: http://solana:8899
+      COMMAND: reg-rollup
+      ROLLUP_OWNER: /opt/rollup-owner-keypair.json
+      UPGRADE_AUTHORITY: /opt/upgrade-authority-keypair.json
     volumes:
-      - ./rome-keypair1.json:/opt/rome-keypair1.json
-      - ./rome-evm-owner.json:/opt/rome-evm-owner.json
-    command: 'bash -c \
-        "/usr/bin/solana -u http://solana:8899 airdrop 100 /opt/rome-evm-owner.json \
-        && /opt/build.sh && /opt/deploy.sh && sleep 12 && /opt/initialize.sh"'
+      - ./keys/rome-keypair.json:/opt/rome-keypair.json
+      - ./keys/rollup-owner-keypair.json:/opt/rollup-owner-keypair.json
+      - ./keys/upgrade-authority-keypair.json:/opt/upgrade-authority-keypair.json
     depends_on:
       solana:
         condition: service_healthy
     networks:
       - net
 
-  # Builds Rome-EVM binary with selected parameters and deploys it
-  rome-evm-builder2:
-    container_name: rome-evm-builder2
-    image: romelabs/rome-evm-builder:${ROME_EVM_BUILDER_TAG:-latest}
+  create_balance:
+    container_name: create_balance
+    image: romelabs/rome-apps:${CLI_TAG:-latest}
     environment:
+      SERVICE_NAME: cli.sh
+      CHAIN_ID: 1001
+      PROGRAM_KEYPAIR: /opt/rome-keypair.json
       SOLANA_RPC: http://solana:8899
-      CHAIN_ID: 1002
-      ROME_EVM_KEYPAIR: /opt/rome-keypair2.json
-      CONTRACT_OWNER_KEYPAIR: /opt/rome-evm-owner.json
-      MINT_TO: 0x768b73EE6CA9e0A1bc32868CA65dB89E44696DD8
-      MINT_AMOUNT: '1000000000000000000000'
+      COMMAND: create-balance
+      ADDRESS: 0x768b73EE6CA9e0A1bc32868CA65dB89E44696DD8
+      BALANCE: '1000000000000000000000'
+      KEYPAIR: /opt/rollup-owner-keypair.json
     volumes:
-      - ./rome-keypair2.json:/opt/rome-keypair2.json
-      - ./rome-evm-owner.json:/opt/rome-evm-owner.json
-    command: 'bash -c \
-        "/usr/bin/solana -u http://solana:8899 airdrop 100 /opt/rome-evm-owner.json \
-        && /opt/build.sh && /opt/deploy.sh && sleep 12 && /opt/initialize.sh"'
+      - ./keys/rome-keypair.json:/opt/rome-keypair.json
+      - ./keys/rollup-owner-keypair.json:/opt/rollup-owner-keypair.json
     depends_on:
       solana:
         condition: service_healthy
@@ -98,7 +90,7 @@ services:
       - net
     depends_on:
       proxy:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: [
         CMD-SHELL,
@@ -127,7 +119,19 @@ services:
       - 8548:8546
       - 8552:8551
     networks:
-      - net  
+      - net
+    depends_on:
+      proxy2:
+        condition: service_healthy
+    healthcheck:
+      test: [
+        CMD-SHELL,
+        "curl --location 'localhost:8545' --header 'Content-Type: application/json' --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":83}'"
+      ]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+      start_period: 10s
 
   rhea:
     container_name: rhea
@@ -137,9 +141,9 @@ services:
       SERVICE_NAME: rhea
       RHEA_CONFIG: /opt/rhea-config.yml
     volumes:
-      - ./rhea-config.yml:/opt/rhea-config.yml
-      - ./rome-keypair1.json:/opt/rome-keypair.json
-      - ./rhea-sender.json:/opt/rhea-sender.json
+      - ./cfg/rhea-config.yml:/opt/rhea-config.yml
+      - ./keys/rome-keypair.json:/opt/rome-keypair.json
+      - ./keys/rhea-sender.json:/opt/rhea-sender.json
     networks:
       - net
     depends_on:
@@ -156,9 +160,9 @@ services:
       SERVICE_NAME: proxy
       PROXY_CONFIG: /opt/proxy-config.yml
     volumes:
-      - ./proxy-config1.yml:/opt/proxy-config.yml
-      - ./rome-keypair1.json:/opt/rome-keypair.json
-      - ./proxy-sender.json:/opt/proxy-sender.json
+      - ./cfg/proxy-config1.yml:/opt/proxy-config.yml
+      - ./keys/rome-keypair.json:/opt/rome-keypair.json
+      - ./keys/proxy-sender.json:/opt/proxy-sender.json
     ports:
       - 9090:9090
     networks:
@@ -166,8 +170,15 @@ services:
     depends_on:
       solana:
         condition: service_healthy
-      rome-evm-builder1:
-        condition: service_completed_successfully
+    healthcheck:
+      test: [
+        CMD-SHELL,
+        "curl --location 'proxy:9090' --header 'Content-Type: application/json' --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":83}'"
+      ]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+      start_period: 10s
 
   proxy2:
     container_name: proxy2
@@ -177,9 +188,9 @@ services:
       SERVICE_NAME: proxy
       PROXY_CONFIG: /opt/proxy-config.yml
     volumes:
-      - ./proxy-config2.yml:/opt/proxy-config.yml
-      - ./rome-keypair2.json:/opt/rome-keypair.json
-      - ./proxy-sender.json:/opt/proxy-sender.json
+      - ./cfg/proxy-config2.yml:/opt/proxy-config.yml
+      - ./keys/rome-keypair.json:/opt/rome-keypair.json
+      - ./keys/proxy-sender.json:/opt/proxy-sender.json
     ports:
       - 9092:9090
     networks:
@@ -187,7 +198,14 @@ services:
     depends_on:
       solana:
         condition: service_healthy
-      rome-evm-builder1:
-        condition: service_completed_successfully
+    healthcheck:
+      test: [
+        CMD-SHELL,
+        "curl --location 'proxy2:9090' --header 'Content-Type: application/json' --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":83}'"
+      ]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+      start_period: 10s
 networks:
   net:

@@ -16,14 +16,14 @@ jobs:
       
       # Set the versions of the various images to run tests against
       EVM_VERSION: "latest"
-      APPS_VERSION: "latest"
+      APPS_VERSION: "main"
       GETH_VERSION: "latest"
       # TESTS_VERSION: "latest"
       UNISWAP_VERSION: "latest"
       OPENZEPPELIN_VERSION: "latest"
 
       # Set the tests list to run 
-      TESTS_LIST: "cross_rollup,uniswap_geth,uniswap_proxy"
+      TESTS_LIST: "tests,uniswap_proxy,uniswap_geth"
 
     outputs:
       docker_image_tags: ${{ steps.prepare_docker_image_tags.outputs.docker_image_tags }}
@@ -53,8 +53,8 @@ jobs:
       - name: 'Prepare Tests List Input'
         id: prepare_tests_list
         run: |
-          # Use TESTS_LIST environment variable or fallback to 'cross_rollup'
-          tests_list="${{ env.TESTS_LIST || 'cross_rollup' }}"
+          # Use TESTS_LIST environment variable or fallback to 'tests'
+          tests_list="${{ env.TESTS_LIST || 'tests' }}"
           
           echo "Tests list: $tests_list"
           echo "tests_list=$tests_list" >> $GITHUB_OUTPUT

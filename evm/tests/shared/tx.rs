@@ -1,16 +1,12 @@
-use {
-    ethereum_abi::{Abi, Value},
-    ethers_core::{
-        k256::ecdsa::SigningKey,
-        types::{
-            transaction::eip2718::TypedTransaction, Address, Eip1559TransactionRequest,
-            NameOrAddress, TransactionRequest, U256,
-        },
-    },
-    ethers_signers::{Signer, Wallet},
-    rome_evm_client::RomeEVMClient as Client,
-    solana_program::keccak::hash,
+use ethereum_abi::{Abi, Value};
+use ethers::types::TransactionRequest;
+use ethers_core::k256::ecdsa::SigningKey;
+use ethers_core::types::{
+    transaction::eip2718::TypedTransaction, Address, Eip1559TransactionRequest, NameOrAddress, U256,
 };
+use ethers_signers::{Signer, Wallet};
+use rome_sdk::rome_evm_client::RomeEVMClient as Client;
+use solana_program::keccak::hash;
 
 #[allow(dead_code)]
 pub fn calc_address(client: &Client, from: &Address) -> Address {
@@ -27,56 +23,51 @@ pub fn calc_address(client: &Client, from: &Address) -> Address {
 }
 
 #[allow(dead_code)]
-pub fn do_rlp(
+pub fn do_tx(
     client: &Client,
     to: Option<Address>,
     data: Vec<u8>,
     wallet: &Wallet<SigningKey>,
     value: u64,
-) -> Vec<u8> {
+    tx_type: u8,
+) -> TypedTransaction {
     let from = Address::from_slice(wallet.address().as_bytes());
     let nonce = client.transaction_count(from).unwrap().as_u64();
     println!("nonce: {}", nonce);
 
-    let eip1559 = Eip1559TransactionRequest {
-        to: to.map(|a| NameOrAddress::Address(Address::from_slice(a.as_bytes()))),
-        data: Some(data.into()),
-        nonce: Some(nonce.into()),
-        chain_id: Some(client.chain_id.into()),
-        value: Some(value.into()),
-        ..Default::default()
-    };
-
-    let tx = TypedTransaction::Eip1559(eip1559);
-    let sig = wallet.sign_transaction_sync(&tx).unwrap();
-    tx.rlp_signed(&sig).to_vec()
-}
-
-#[allow(dead_code)]
-pub fn do_rlp_with_gas(
-    client: &Client,
-    to: Option<Address>,
-    data: Vec<u8>,
-    wallet: &Wallet<SigningKey>,
-    gas: u64,
-) -> Vec<u8> {
-    let from = Address::from_slice(wallet.address().as_bytes());
-    let nonce = client.transaction_count(from).unwrap().as_u64();
-    println!("nonce: {}", nonce);
-
-    let legacy = TransactionRequest {
-        to: to.map(|a| NameOrAddress::Address(Address::from_slice(a.as_bytes()))),
-        data: Some(data.into()),
-        nonce: Some(nonce.into()),
-        chain_id: Some(client.chain_id.into()),
-        gas: Some(gas.into()),
-        gas_price: Some(1.into()),
-        ..Default::default()
-    };
-
-    let tx = TypedTransaction::Legacy(legacy);
-    let sig = wallet.sign_transaction_sync(&tx).unwrap();
-    tx.rlp_signed(&sig).to_vec()
+    match tx_type {
+        0 => {
+            let mut legacy = TransactionRequest {
+                to: to.map(|a| NameOrAddress::Address(Address::from_slice(a.as_bytes()))),
+                data: Some(data.into()),
+                nonce: Some(nonce.into()),
+                chain_id: Some(client.chain_id().into()),
+                gas_price: Some(1.into()),
+                value: Some(value.into()),
+                ..Default::default()
+            };
+            legacy.from = Some(from);
+            legacy.gas = Some(client.estimate_gas(&legacy).unwrap());
+            TypedTransaction::Legacy(legacy)
+        },
+        2 => {
+            let mut eip1559 = Eip1559TransactionRequest {
+                to: to.map(|a| NameOrAddress::Address(Address::from_slice(a.as_bytes()))),
+                data: Some(data.into()),
+                nonce: Some(nonce.into()),
+                chain_id: Some(client.chain_id().into()),
+                value: Some(value.into()),
+                max_priority_fee_per_gas: Some(1.into()), // TODO: do not use it
+                max_fee_per_gas: Some(1.into()),
+                ..Default::default()
+            };
+            let mut legacy: TransactionRequest = eip1559.clone().into();
+            legacy.from = Some(from);
+            eip1559.gas = Some(client.estimate_gas(&legacy).unwrap());
+            TypedTransaction::Eip1559(eip1559)
+        },
+        _ => unimplemented!()
+    }
 }
 
 // pub fn method_id(name: &str) -> [u8; 4] {
@@ -103,7 +94,11 @@ pub fn method_id(abi: &Abi, method: &str) -> Vec<u8> {
                 let val: u64 = arg_split[2].parse().unwrap();
                 let val_u256 = primitive_types::U256::from(val);
                 Value::encode(&[Value::Uint(val_u256, 32)])
-            }
+            },
+            "string" => {
+                let val = arg_split[2].to_string();
+                Value::encode(&[Value::String(val)])
+            },
             _ => unimplemented!(),
         }
     } else {
@@ -116,6 +111,7 @@ pub fn method_id(abi: &Abi, method: &str) -> Vec<u8> {
         .filter(|a| a.name == arg_split[0].to_string())
         .next()
         .unwrap();
+
     let mut bin = method.method_id().to_vec();
     bin.append(&mut arg);
     bin
