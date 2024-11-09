@@ -17,7 +17,7 @@ jobs:
       # Set the versions of the various images to run tests against
       EVM_VERSION: "main"
       APPS_VERSION: "main"
-      GETH_VERSION: "latest"
+      GETH_VERSION: "v0.2.0"
       # TESTS_VERSION: "latest"
       UNISWAP_VERSION: "latest"
       OPENZEPPELIN_VERSION: "latest"

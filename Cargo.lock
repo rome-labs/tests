@@ -2376,7 +2376,6 @@ dependencies = [
  "ethers",
  "ethers-core",
  "ethers-signers",
- "evm 0.18.0",
  "hex",
  "libsecp256k1 0.5.0",
  "openssl",

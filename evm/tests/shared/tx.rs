@@ -5,7 +5,8 @@ use ethers_core::types::{
     transaction::eip2718::TypedTransaction, Address, Eip1559TransactionRequest, NameOrAddress, U256,
 };
 use ethers_signers::{Signer, Wallet};
-use rome_sdk::rome_evm_client::RomeEVMClient as Client;
+// use rome_sdk::rome_evm_client::RomeEVMClient as Client;
+use super::client::Client;
 use solana_program::keccak::hash;
 
 #[allow(dead_code)]
@@ -31,14 +32,26 @@ pub fn do_tx(
     value: u64,
     tx_type: u8,
 ) -> TypedTransaction {
-    let from = Address::from_slice(wallet.address().as_bytes());
-    let nonce = client.transaction_count(from).unwrap().as_u64();
+    let nonce = client.transaction_count(wallet.address()).unwrap().as_u64();
+    do_tx_base(client, to, data, wallet, value,tx_type, nonce)
+}
+
+#[allow(dead_code)]
+pub fn do_tx_base(
+    client: &Client,
+    to: Option<Address>,
+    data: Vec<u8>,
+    wallet: &Wallet<SigningKey>,
+    value: u64,
+    tx_type: u8,
+    nonce: u64,
+) -> TypedTransaction {
     println!("nonce: {}", nonce);
 
     match tx_type {
         0 => {
             let mut legacy = TransactionRequest {
-                to: to.map(|a| NameOrAddress::Address(Address::from_slice(a.as_bytes()))),
+                to: to.map(|a| NameOrAddress::Address(a)),
                 data: Some(data.into()),
                 nonce: Some(nonce.into()),
                 chain_id: Some(client.chain_id().into()),
@@ -46,13 +59,13 @@ pub fn do_tx(
                 value: Some(value.into()),
                 ..Default::default()
             };
-            legacy.from = Some(from);
+            legacy.from = Some(wallet.address());
             legacy.gas = Some(client.estimate_gas(&legacy).unwrap());
             TypedTransaction::Legacy(legacy)
         },
         2 => {
             let mut eip1559 = Eip1559TransactionRequest {
-                to: to.map(|a| NameOrAddress::Address(Address::from_slice(a.as_bytes()))),
+                to: to.map(|a| NameOrAddress::Address(a)),
                 data: Some(data.into()),
                 nonce: Some(nonce.into()),
                 chain_id: Some(client.chain_id().into()),
@@ -62,13 +75,26 @@ pub fn do_tx(
                 ..Default::default()
             };
             let mut legacy: TransactionRequest = eip1559.clone().into();
-            legacy.from = Some(from);
+            legacy.from = Some(wallet.address());
             eip1559.gas = Some(client.estimate_gas(&legacy).unwrap());
             TypedTransaction::Eip1559(eip1559)
         },
         _ => unimplemented!()
     }
 }
+
+
+
+#[allow(dead_code)]
+pub fn do_rlp(
+    tx: &TypedTransaction,
+    wallet: &Wallet<SigningKey>,
+) -> Vec<u8> {
+    let sig = wallet.sign_transaction_sync(&tx).unwrap();
+    tx.rlp_signed(&sig).to_vec()
+}
+
+
 
 // pub fn method_id(name: &str) -> [u8; 4] {
 //     let hash = hash(name.as_bytes()).to_bytes();
@@ -88,7 +114,6 @@ pub fn method_id(abi: &Abi, method: &str) -> Vec<u8> {
     let arg_split: Vec<&str> = method.split(&['(', ' ', ')']).collect();
     assert!(arg_split.len() == 1 || arg_split.len() == 4);
     let mut arg = if arg_split.len() == 4 {
-        println!("{:?}", arg_split);
         match arg_split[1] {
             "uint256" => {
                 let val: u64 = arg_split[2].parse().unwrap();

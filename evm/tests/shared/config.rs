@@ -1,5 +1,7 @@
 use std::borrow::Cow;
-use rome_sdk::rome_solana::config::SolanaConfig;
+use rome_sdk::{
+    rome_solana::config::SolanaConfig, rome_evm_client::PayerConfig,
+};
 use std::{
     fs::File, io, path::Path,
     path::PathBuf
@@ -9,11 +11,11 @@ use std::{
 pub struct Config {
     pub solana: SolanaConfig,
     pub chain_id: u64,
-    pub program_keypair: PathBuf,
-    pub payer_keypair: PathBuf,
+    pub program_id: String,
+    pub payers: Vec<PayerConfig>,
+    // pub rhea_payers: Vec<PayerConfig>,
     pub upgrade_authority_keypair: PathBuf,
     pub rollup_owner_keypair: PathBuf,
-    pub rhea_sender_keypair: PathBuf,
     pub start_slot: Option<u64>,
 }
 
