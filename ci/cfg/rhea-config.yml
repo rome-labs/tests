@@ -1,14 +1,10 @@
 chain_id: 1001
 program_id: "CmobH2vR6aUtQ8x4xd1LYNiH6k2G7PFT5StTgWqvy2VU"
-start_slot: 0
 solana:
   rpc_url: "http://solana:8899"
 payers:
   - payer_keypair: "/opt/rhea-sender.json"
     number_holders: 32
-geth_engine:
-  geth_engine_addr: "http://geth:8551"
-  geth_engine_secret: "a535c9f4f9df8e00cd6a15a7baa74bb92ca47ebdf59b6f3f2d8a8324b6c1767c"
 geth_indexer:
   geth_http_addr: "http://geth:8545"
   geth_poll_interval_ms: 100

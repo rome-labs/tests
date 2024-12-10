@@ -22,6 +22,7 @@ use solana_sdk::signer::Signer;
     case::hello_world("HelloWorld", vec![0, 2], true),
     case::touch_storage("TouchStorage", vec![0, 2], true),
     case::touch_storage("TouchStorage", vec![0, 2], false),
+    case::huge("uniswap/Huge", vec![2], true),
 )]
 async fn evm_deploy(contract: String, tx_type: Vec<u8>, zero_gas: bool) {
     let wallet = wallet();
@@ -43,6 +44,24 @@ async fn evm_deploy(contract: String, tx_type: Vec<u8>, zero_gas: bool) {
             "update",
             "update_single",
             "push",
+        ],
+        false
+    ),
+    case::tstore(
+        "TStore",
+        vec![
+            "check(uint256 1)",
+            "check(uint256 2)",
+            "check(uint256 5)",
+        ],
+        false
+    ),
+    case::selfdestruct(
+        "DestructCaller",
+        vec![
+            "deploy",
+            "deploy_and_destruct",
+            "check",
         ],
         false
     ),
@@ -188,40 +207,40 @@ async fn evm_nested_call(
 }
 
 #[rstest(
-    _contract,
-    _methods,
-    _tx_type,
+    contract,
+    methods,
+    tx_type,
     case::storage("AtomicIterative", vec!["atomic_rw", "iterative_rw"], 0),
     case::storage("AtomicIterative", vec!["atomic_ro", "iterative_ro"], 2),
 )]
 #[serial_test::serial]
 async fn evm_gas_transfer(
     client: &Client,
-    _contract: String,
-    _methods: Vec<&str>,
-    _tx_type: u8
+    contract: String,
+    methods: Vec<&str>,
+    tx_type: u8
 ) {
     let wallet = wallet();
     client.airdrop(wallet.address(), 1_000_000_000_000, false).await;
 
     // // deploy contract
-    // let address = client.deploy(&contract, &wallet, None, tx_type, false).await;
-    // let abi = abi(&format!("{}{}.abi", CONTRACTS, contract));
-    //
-    // // call methods and compare the estimate gas with gas_transfer
-    // for method in methods {
-    //     let tx = do_tx(&client, Some(address), method_id(&abi, method), &wallet, 0, tx_type);
-    //
-    //     let before = client.get_balance(wallet.address()).unwrap();
-    //     client.method_call(&contract, &address, method, &wallet, tx_type, false).await;
-    //     let after = client.get_balance(wallet.address()).unwrap();
-    //
-    //     let estimage_gas = tx.gas().unwrap();
-    //     let gas_transfer = before.checked_sub(after).unwrap();
-    //
-    //     assert!(gas_transfer >= 0.into());
-    //     assert!(gas_transfer <= *estimage_gas);
-    // }
+    let address = client.deploy(&contract, &wallet, None, tx_type, false).await;
+    let abi = abi(&format!("{}{}.abi", CONTRACTS, contract));
+
+    // call methods and compare the estimate gas with gas_transfer
+    for method in methods {
+        let tx = do_tx(&client, Some(address), method_id(&abi, method), &wallet, 0, tx_type);
+
+        let before = client.get_balance(wallet.address()).unwrap();
+        client.method_call(&contract, &address, method, &wallet, tx_type, false).await;
+        let after = client.get_balance(wallet.address()).unwrap();
+
+        let estimage_gas = tx.gas().unwrap();
+        let gas_transfer = before.checked_sub(after).unwrap();
+
+        assert!(gas_transfer >= 0.into());
+        assert!(gas_transfer <= *estimage_gas);
+    }
 
 }
 

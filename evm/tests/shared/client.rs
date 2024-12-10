@@ -3,8 +3,8 @@ use std::ops::Deref;
 use rome_sdk::rome_evm_client::{
     RomeEVMClient,
     indexer::{
-        solana_block_inmemory_storage::SolanaBlockInMemoryStorage,
-        transaction_inmemory_storage::TransactionInMemoryStorage,
+        inmemory::SolanaBlockStorage,
+        inmemory::EthereumBlockStorage,
     },
 };
 use rome_sdk::rome_solana::indexers::clock::SolanaClockIndexer;
@@ -24,11 +24,14 @@ use crate::shared::{
     tx::{abi, calc_address, method_id}, CONTRACTS,
 };
 use std::str::FromStr;
+use std::sync::Arc;
+
+type ClientType = RomeEVMClient<SolanaBlockStorage, EthereumBlockStorage>;
 
 /// [RomeEVMClient] and payer [Keypair]
 pub struct Client {
     /// instance of [RomeEVMClient]
-    pub client: RomeEVMClient<SolanaBlockInMemoryStorage, TransactionInMemoryStorage>,
+    pub client: ClientType,
     /// upgrade_authority keypair of the rome-evm contract
     pub upgrade_authority: Keypair,
     /// rollup owner
@@ -38,7 +41,7 @@ pub struct Client {
 }
 
 impl Deref for Client {
-    type Target = RomeEVMClient<SolanaBlockInMemoryStorage, TransactionInMemoryStorage>;
+    type Target = ClientType;
 
     fn deref(&self) -> &Self::Target {
         &self.client
@@ -78,18 +81,19 @@ impl Client {
 
         tokio::spawn(solana_clock_indexer.start());
         let tower = SolanaTower::new(client, clock);
+        let solana_block_storage = Arc::new(SolanaBlockStorage::new());
+        let ethereum_block_storage = Arc::new(EthereumBlockStorage::new(config.chain_id));
         let client = RomeEVMClient::new(
-            config.chain_id,
             program_id,
             tower,
             config.solana.commitment,
-            SolanaBlockInMemoryStorage::new(),
-            TransactionInMemoryStorage::new(),
+            solana_block_storage,
+            ethereum_block_storage,
             payers,
         );
 
         Self {
-            client: client,
+            client,
             upgrade_authority,
             rollup_owner,
             rollup_owner_wallet,

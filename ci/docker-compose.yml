@@ -133,6 +133,61 @@ services:
       retries: 10
       start_period: 10s
 
+  postgres:
+    container_name: postgres
+    image: postgres:15
+    command: postgres -c 'max_connections=1000'
+    environment:
+      POSTGRES_DB: test_rollup
+      POSTGRES_USER: hercules
+      POSTGRES_PASSWORD: qwerty123
+    hostname: postgres
+    healthcheck:
+      test: [ CMD-SHELL, "pg_isready -h postgres -p 5432" ]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    expose:
+      - 5432
+    networks:
+      - net
+
+  apply_migrations:
+    container_name: apply_migrations
+    image: romelabs/rome-apps:${RHEA_TAG:-latest}
+    environment:
+      SERVICE_NAME: apply_migrations
+      DATABASE_URL: "postgres://hercules:qwerty123@postgres/test_rollup"
+    networks:
+      - net
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  hercules:
+    container_name: hercules
+    image: romelabs/rome-apps:${RHEA_TAG:-latest}
+    hostname: hercules
+    environment:
+      SERVICE_NAME: hercules
+      HERCULES_CONFIG: /opt/hercules-config.yml
+    volumes:
+      - ./cfg/hercules-config.yml:/opt/hercules-config.yml
+    ports:
+      - 8000:8000
+    networks:
+      - net
+    depends_on:
+      solana:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      apply_migrations:
+        condition: service_completed_successfully
+      geth:
+        condition: service_healthy
+
   rhea:
     container_name: rhea
     image: romelabs/rome-apps:${RHEA_TAG:-latest}
@@ -149,6 +204,8 @@ services:
     depends_on:
       solana:
         condition: service_healthy
+      hercules:
+        condition: service_started
       geth:
         condition: service_healthy
         
