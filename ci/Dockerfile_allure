@@ -1,0 +1,43 @@
+FROM romelabs/openzeppelin-contracts:develop as oz-contracts
+FROM ubuntu:24.04
+
+ENV TZ=Europe/Moscow
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+RUN apt update && \
+    apt upgrade -y && \
+# Prepare repo for node 18
+    apt install -y software-properties-common  ca-certificates curl gnupg git  && \
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_18.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list && \
+    apt update && \
+    apt install -y  nodejs build-essential
+
+# web3
+RUN sh -c "$(curl -sSfL https://raw.githubusercontent.com/gochain/web3/master/install.sh)"
+
+RUN apt install default-jdk -y && \
+    curl -o allure-2.21.0.tgz -Ls https://repo.maven.apache.org/maven2/io/qameta/allure/allure-commandline/2.21.0/allure-commandline-2.21.0.tgz && \
+    tar -zxvf allure-2.21.0.tgz -C /opt/  && \
+    ln -s /opt/allure-2.21.0/bin/allure /usr/bin/allure
+
+RUN apt install -y libxkbcommon0 \
+    libxdamage1 \
+    libgbm1 \
+    libpango-1.0-0 \
+    libcairo2 \
+    xvfb
+
+RUN mkdir /opt/oz
+COPY --from=oz-contracts /usr/src/app /opt/oz/openzeppelin-contracts
+COPY --from=oz-contracts /root/.cache/hardhat-nodejs  /root/.cache/hardhat-nodejs
+RUN cd /opt/oz/openzeppelin-contracts && docker/compile_contracts.sh
+
+ENV DOWNLOAD_PATH="/root/.cache/hardhat-nodejs/compilers-v2/linux-amd64" \
+    REPOSITORY_PATH="https://binaries.soliditylang.org/linux-amd64" \
+    SOLC_BINARY="solc-linux-amd64-v0.7.6+commit.7338295f"
+RUN mkdir -p ${DOWNLOAD_PATH} && \
+    curl -o ${DOWNLOAD_PATH}/${SOLC_BINARY} ${REPOSITORY_PATH}/${SOLC_BINARY} && \
+    curl -o ${DOWNLOAD_PATH}/list.json ${REPOSITORY_PATH}/list.json && \
+    chmod -R 755 ${DOWNLOAD_PATH}
+

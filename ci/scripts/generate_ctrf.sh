@@ -151,7 +151,7 @@ for input_file in records/*.txt; do
             result=$(echo "$line" | awk '{print $NF}')
             status=""
             if [[ $result == "ok" ]]; then
-                status="success"
+                status="passed"
             elif [[ $result == "FAILED" ]]; then
                 status="failed"
             else
@@ -231,6 +231,9 @@ output="[${output%,}]"
 
 final_output=$(printf '{
   "results": {
+    "tool": {
+        "name": "jest"
+    },
     "summary": {
       "tests": %d,
       "passed": %d,
@@ -244,7 +247,7 @@ final_output=$(printf '{
     },
     "tests": %s
   }
-}' "$total_tests" "$total_global_passed" "$total_global_failed" "total_global_skipped" "$start_time" "$stop_time" "$output")
+}' "$total_tests" "$total_global_passed" "$total_global_failed" "$total_global_skipped" "$start_time" "$stop_time" "$output")
 
 echo "$final_output" > "$output_file"
 echo "Test results saved to $output_file"

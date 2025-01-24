@@ -1,0 +1,15 @@
+[package]
+name = "oz"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+glob = "0.3.1"
+hex = "0.4.3"
+rand = "0.8.5"
+rand_core = "0.6.4"
+serde_json = "1.0.133"
+tokio = { version = "1.42.0", features = ["full"] }
+ethers-core = "2.0.14"
+ethers-signers = "2.0.14"
+ethers = "2.0.14"

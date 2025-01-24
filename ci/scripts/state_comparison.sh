@@ -3,7 +3,7 @@
 copy_logs() {
   LOGS_DIR="../records/tests-docker-logs"
   mkdir -p $LOGS_DIR
-  docker-compose ps -q | xargs -I {} sh -c 'docker logs {} > ../records/tests-docker-logs/$(docker inspect --format="{{.Name}}" {}).log 2>&1'
+  docker-compose ps -aq | xargs -I {} sh -c 'docker logs {} > ../records/tests-docker-logs/$(docker inspect --format="{{.Name}}" {}).log 2>&1'
 }
 
 clear_env() {

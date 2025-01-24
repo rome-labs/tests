@@ -6,7 +6,7 @@ on:
       docker_image_tags:
         description: 'JSON object containing Docker image tags (e.g., {"evm": "latest", "apps": "latest", "geth": "latest", "tests": "latest", "uniswap": "latest", "openzeppelin": "latest"})'
         required: true
-        default: '{"evm": "latest", "apps": "latest", "geth": "latest", "tests": "latest", "uniswap": "latest", "openzeppelin": "latest"}'
+        default: '{"evm": "latest", "apps": "latest", "geth": "main", "tests": "latest", "uniswap": "latest", "openzeppelin": "latest"}'
       tests_list:
         description: 'Comma-separated list of tests to run (e.g., tests,uniswap_geth,uniswap_proxy,openzeppelin_geth,openzeppelin_proxy)'
         required: true

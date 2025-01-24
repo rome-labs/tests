@@ -12,7 +12,7 @@ has_container_exited() {
 copy_logs() {
   LOGS_DIR="../records/uniswap-geth-docker-logs"
   mkdir -p $LOGS_DIR
-  docker-compose ps -q | xargs -I {} sh -c 'docker logs {} > ../records/uniswap-geth-docker-logs/$(docker inspect --format="{{.Name}}" {}).log 2>&1'
+  docker-compose ps -aq | xargs -I {} sh -c 'docker logs {} > ../records/uniswap-geth-docker-logs/$(docker inspect --format="{{.Name}}" {}).log 2>&1'
 }
 
 clear_env() {
@@ -33,19 +33,26 @@ airdrop() {
   docker exec solana solana -u http://localhost:8899 airdrop 10000 ./test-account-keypair.json
   docker exec solana solana -u http://localhost:8899 airdrop 10000 ./upgrade-authority-keypair.json
 
-  docker-compose up -d reg_rollup
-  until has_container_exited "reg_rollup"; do
-    sleep 2
-  done
+  docker-compose up reg_rollup
+  sleep 2
+  # until has_container_exited "reg_rollup"; do``
+  #   sleep 2
+  # done
 
-  docker-compose up -d create_balance
-  until has_container_exited "create_balance"; do
-    sleep 2
-  done
+  docker-compose up create_balance
+  sleep 2
+  # until has_container_exited "create_balance"; do
+  #   sleep 2
+  # done
 
-  curl --location 'http://localhost:3000/airdrop' --header 'Content-Type: application/json' --data '{"recipientAddr": "0xa3349dE31ECd7fd9413e1256b6472a68c920D186", "amount": "100.0"}'
-  curl --location 'http://localhost:3000/airdrop' --header 'Content-Type: application/json' --data '{"recipientAddr": "0x6970d087e7e78A13Ea562296edb05f4BB64D5c2E", "amount": "100.0"}'
-  curl --location 'http://localhost:3000/airdrop' --header 'Content-Type: application/json' --data '{"recipientAddr": "0xaA4d6f4FF831181A2bBfD4d62260DabDeA964fF1", "amount": "100.0"}'
+  docker logs faucet
+
+  echo "Starting Airdrop..."
+  curl -m 30 --location 'http://localhost:3000/airdrop' --header 'Content-Type: application/json' --data '{"recipientAddr": "0xa3349dE31ECd7fd9413e1256b6472a68c920D186", "amount": "100.0"}'
+  curl -m 30 --location 'http://localhost:3000/airdrop' --header 'Content-Type: application/json' --data '{"recipientAddr": "0x6970d087e7e78A13Ea562296edb05f4BB64D5c2E", "amount": "100.0"}'
+  curl -m 30 --location 'http://localhost:3000/airdrop' --header 'Content-Type: application/json' --data '{"recipientAddr": "0xaA4d6f4FF831181A2bBfD4d62260DabDeA964fF1", "amount": "100.0"}'
+  echo "Finished Airdrop..."
+
 }
 
 evm_address="0x768b73EE6CA9e0A1bc32868CA65dB89E44696DD8"
@@ -73,14 +80,12 @@ mkdir -p records
 touch ./records/uniswap-op-geth.txt
 cd ./ci
 
-docker-compose up -d solana proxy geth rhea
+docker-compose up -d solana proxy geth rhea hercules faucet
 
 # Wait while geth started
 sleep 15
 
 airdrop
-
-
 
 #################
 # Op Geth Tests #

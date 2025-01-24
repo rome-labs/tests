@@ -6,12 +6,13 @@ edition = "2021"
 [dependencies]
 
 [dev-dependencies]
+solana-program = "2.1.7"
+solana-client = "2.1.7"
+solana-sdk = "2.1.7"
+
 anyhow = "1.0.86"
 ethers = "2.0.14"
-solana-program = "1.18.17"
 serde = { version = "1.0", features = ["derive", "rc"] }
-solana-client = "1.18.17"
-solana-sdk = "1.18.17"
 tracing = "0.1.40"
 libsecp256k1 = { version = "0.5.0", default-features = false, features = ["static-context", "hmac"] }
 primitive-types = "0.11.1"
@@ -30,5 +31,5 @@ tokio-util = "0.7.10"
 hex = "0.4.3"
 openssl = { version = "0.10.59", features = ["vendored"] }
 url = "2.5.2"
-rome-sdk = { path = "../../rome-sdk/rome-sdk" }
 serial_test = "3.1.1"
+rome-sdk = { path = "../../rome-sdk/rome-sdk" }

@@ -117,8 +117,6 @@ jobs:
       - name: 'Run EVM tests'
         if: env.TESTS == 'true'
         run: |
-          docker ps -aq | xargs -r docker stop | xargs -r docker rm || true
-          docker volume prune -f
           cd tests
           ls -l
           chmod +x ./ci/scripts/tests.sh
@@ -128,8 +126,6 @@ jobs:
       - name: 'Run State Comparison tests'
         if: env.TESTS == 'true'
         run: |
-          docker ps -aq | xargs -r docker stop | xargs -r docker rm || true
-          docker volume prune -f
           cd tests
           ls -l
           chmod +x ./ci/scripts/state_comparison.sh
@@ -139,8 +135,6 @@ jobs:
       - name: 'Run uniswap geth tests'
         if: env.UNISWAP_GETH_TESTS == 'true'
         run: |
-          docker ps -aq | xargs docker stop | xargs docker rm || true
-          docker volume prune -f
           cd tests
           ls -l
           chmod +x ./ci/scripts/uniswap_op_geth.sh
@@ -150,8 +144,6 @@ jobs:
       - name: 'Run uniswap proxy tests'
         if: env.UNISWAP_PROXY_TESTS == 'true'
         run: |
-          docker ps -aq | xargs docker stop | xargs docker rm || true
-          docker volume prune -f
           cd tests
           ls -l
           chmod +x ./ci/scripts/uniswap_proxy.sh
@@ -161,8 +153,6 @@ jobs:
       - name: 'Run openzeppelin geth tests'
         if: env.OPENZEPPELIN_GETH_TESTS == 'true'
         run: |
-          docker ps -aq | xargs docker stop | xargs docker rm || true
-          docker volume prune -f
           cd tests
           ls -l
           chmod +x ./ci/scripts/open_zeppelin_op_geth.sh
@@ -172,8 +162,6 @@ jobs:
       - name: 'Run openzeppelin proxy tests'
         if: env.OPENZEPPELIN_PROXY_TESTS == 'true'
         run: |
-          docker ps -aq | xargs docker stop | xargs docker rm || true
-          docker volume prune -f
           cd tests
           ls -l
           chmod +x ./ci/scripts/open_zeppelin_proxy.sh
@@ -200,13 +188,15 @@ jobs:
         if: always()
 
       - name: Publish CTRF Test Summary Results
-        run: npx github-actions-ctrf summary ./tests/records/test_results.json
         if: always()
+        uses: ctrf-io/github-test-reporter@v1
+        with:
+          report-path: './tests/records/test_results.json' # Path or glob pattern to the CTRF report JSON file.
+          summary-report: true
+          test-report: true
+          failed-report: true
+          skipped-report: true
 
-      - name: Publish CTRF Test Detailed Results
-        run: npx github-actions-ctrf tests ./tests/records/test_results.json
-        if: always()
-        
       - name: 'Tar logs from records folder'
         run: tar cvzf ./logs.tgz ./tests/records
         if: always()

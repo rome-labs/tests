@@ -5,7 +5,11 @@ solana:
   rpc_url: "http://solana:8899"
   commitment: "confirmed"
 payers:
-  - payer_keypair: "/opt/proxy-sender.json"
+  - payer_keypair: "/opt/keys/proxy-sender.json"
     number_holders: 32
+ethereum_storage:
+  type: "pg_storage"
+  database_url: "postgres://hercules:qwerty123@postgres/test_rollup"
+  max_connections: 16
 proxy_host: "0.0.0.0:9090"
 max_slot_history: 4096

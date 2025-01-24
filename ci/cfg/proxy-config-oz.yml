@@ -1,0 +1,73 @@
+chain_id: 1001
+program_id: "CmobH2vR6aUtQ8x4xd1LYNiH6k2G7PFT5StTgWqvy2VU"
+start_slot: 0
+solana:
+  rpc_url: "http://solana:8899"
+  commitment: "confirmed"
+ethereum_storage:
+  type: "pg_storage"
+  database_url: "postgres://hercules:qwerty123@postgres/test_rollup"
+  max_connections: 16
+payers:
+  - payer_keypair: "/opt/keys/id1.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id2.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id3.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id4.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id5.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id6.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id7.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id8.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id9.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id10.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id11.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id12.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id13.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id14.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id15.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id16.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id17.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id18.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id19.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id20.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id21.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id22.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id23.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id24.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id25.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id26.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id27.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id28.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id29.json"
+    number_holders: 1
+  - payer_keypair: "/opt/keys/id30.json"
+    number_holders: 64
+proxy_host: "0.0.0.0:9090"
+max_slot_history: 4096

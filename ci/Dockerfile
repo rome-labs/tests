@@ -21,9 +21,9 @@ RUN solc --optimize --optimize-runs 200 --output-dir . --bin --abi *.sol && \
         ls -l
 
 
-FROM solanalabs/solana:v1.17.28 as solana
+FROM anzaxyz/agave:v2.1.7 as solana
 
-FROM rust:1.78.0 as build
+FROM rust:1.79.0 as build
 
 
 COPY ./tests /opt/tests

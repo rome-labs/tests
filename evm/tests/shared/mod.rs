@@ -17,6 +17,7 @@ pub fn client_config(path: &str) -> Config {
     load_config(path).unwrap()
 }
 
+#[allow(dead_code)]
 pub fn wallet() -> ethers_signers::Wallet<ethers_core::k256::ecdsa::SigningKey> {
     let mut rng = rand_core::OsRng {};
     ethers_signers::Wallet::new(&mut rng)

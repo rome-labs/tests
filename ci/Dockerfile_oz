@@ -1,0 +1,20 @@
+FROM solanalabs/solana:v1.17.28 as solana
+FROM rust:1.78.0 as build
+
+ADD ./tests /opt/tests
+WORKDIR /opt/tests/oz
+
+RUN cargo build
+
+
+FROM romelabs/allure:latest
+RUN apt-get update
+
+RUN mkdir /opt/bin
+
+COPY --from=build /opt/tests/oz/target/debug/oz /opt/bin
+COPY --from=solana /usr/bin/solana /opt/bin/
+COPY --from=solana /usr/bin/solana-keygen /opt/bin/
+
+
+
