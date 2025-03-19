@@ -22,8 +22,8 @@ use crate::shared::{
 };
 use std::str::FromStr;
 use std::sync::Arc;
-
-type ClientType = RomeEVMClient<EthereumBlockStorage>;
+use crate::shared::utils::{run_on_testnet, run_on_devnet};
+type ClientType = RomeEVMClient;
 
 /// [RomeEVMClient] and payer [Keypair]
 pub struct Client {
@@ -31,10 +31,10 @@ pub struct Client {
     pub client: ClientType,
     /// upgrade_authority keypair of the rome-evm contract
     pub upgrade_authority: Keypair,
-    /// rollup owner
-    pub rollup_owner: Keypair,
-    /// rollup owner wallet
-    pub rollup_owner_wallet: Wallet<SigningKey>,
+    /// user's solana wallet
+    pub user_solana_wallet: Keypair,
+    /// user's rome wallet
+    pub user_wallet: Wallet<SigningKey>,
 }
 
 impl Deref for Client {
@@ -49,24 +49,30 @@ impl Client {
     /// Create a new instance of [Client] with the given [Config]
     pub async fn new(
         config: Config,
-        rollup_owner_wallet: Wallet<SigningKey>,
+        user_wallet: Wallet<SigningKey>,
     ) -> Client {
 
         let payers = Payer::from_config_list(&config.payers).await.unwrap();
 
         let program_id = Pubkey::from_str(&config.program_id).unwrap();
 
-        let upgrade_authority = SolanaKeyPayer::read_from_file(&config.upgrade_authority_keypair)
+        let upgrade_authority = if !run_on_testnet() && !run_on_devnet() {
+            SolanaKeyPayer::read_from_file(&config.upgrade_authority_keypair)
             .await
             .expect("read upgrade-authority-keypair error")
             .into_keypair()
-            .into();
+        } else {
+            Keypair::new()
+        };
 
-        let rollup_owner = SolanaKeyPayer::read_from_file(&config.rollup_owner_keypair)
+        let user_solana_wallet = if !run_on_testnet() && !run_on_devnet() {
+            SolanaKeyPayer::read_from_file(&config.user_keypair)
             .await
-            .expect("read rollup-owner-keypair error")
+            .expect("read user_keypair error")
             .into_keypair()
-            .into();
+        } else {
+            Keypair::new()
+        };
 
         let client: AsyncAtomicRpcClient = config.solana.clone().into_async_client().into();
 
@@ -78,8 +84,10 @@ impl Client {
 
         tokio::spawn(solana_clock_indexer.start());
         let tower = SolanaTower::new(client, clock);
-        let ethereum_block_storage = Arc::new(EthereumBlockStorage::new(config.chain_id));
+        let ethereum_block_storage = Arc::new(EthereumBlockStorage);
+
         let client = RomeEVMClient::new(
+            config.chain_id,
             program_id,
             tower,
             config.solana.commitment,
@@ -89,19 +97,11 @@ impl Client {
 
         Self {
             client,
-            upgrade_authority,
-            rollup_owner,
-            rollup_owner_wallet,
+            upgrade_authority: upgrade_authority,
+            user_solana_wallet: user_solana_wallet,
+            user_wallet
         }
     }
-
-
-    // #[allow(dead_code)]
-    // #[inline]
-    // pub fn get_rhea_sender(&self) -> &Keypair {
-    //     &self.rhea_payer
-    // }
-
 
     /// Sign and send transaction, check gas_transfer
     pub async fn send_tx(
@@ -221,6 +221,10 @@ impl Client {
     /// Airdrop
     #[allow(dead_code)]
     pub async fn airdrop(&self, to: Address, value: u64, zero_gas: bool) {
-        self.transfer(&self.rollup_owner_wallet, &to, value, zero_gas).await;
+        if !run_on_testnet() && !run_on_devnet() {
+            self.transfer(&self.user_wallet, &to, value, zero_gas).await;
+        } else {
+            println!("Run on testnet or devnet");
+        }
     }
 }

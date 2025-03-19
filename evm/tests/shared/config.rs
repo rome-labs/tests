@@ -13,9 +13,8 @@ pub struct Config {
     pub chain_id: u64,
     pub program_id: String,
     pub payers: Vec<PayerConfig>,
-    // pub rhea_payers: Vec<PayerConfig>,
     pub upgrade_authority_keypair: PathBuf,
-    pub rollup_owner_keypair: PathBuf,
+    pub user_keypair: PathBuf,
     pub start_slot: Option<u64>,
 }
 

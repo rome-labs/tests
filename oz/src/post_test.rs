@@ -34,11 +34,11 @@ pub fn create_allure_env() {
     let path = Path::new(ALLURE_ENV);
     let mut file = File::create(path).unwrap();
 
-    let proxy_tag = env::var("PROXY_TAG").expect("expected PROXY_TAG");
+    let rome_apps_tag = env::var("ROME_APPS_TAG").expect("expected ROME_APPS_TAG");
     let rome_evm_tag = env::var("ROME_EVM_TAG").expect("expected ROME_EVM_TAG:");
     let ref_name = env::var("REF_NAME").expect("expected REF_NAME:");
 
-    file.write_all(format!("proxy tag: {}\n", proxy_tag).as_bytes()).unwrap();
+    file.write_all(format!("rome-apps tag: {}\n", rome_apps_tag).as_bytes()).unwrap();
     file.write_all(format!("rome-evm  tag: {}\n", rome_evm_tag).as_bytes()).unwrap();
     file.write_all(format!("tests branch: {}\n", ref_name).as_bytes()).unwrap();
 }

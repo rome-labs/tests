@@ -16,7 +16,7 @@ const ALLURE_RESULTS: &str = "/opt/allure-results";
 const ALLURE_ENV: &str = "/opt/allure-results/environment.properties";
 
 async fn oz (url: &str, tasks: usize, chain_id: u64, hh_acc_number: usize) {
-    println!("Start OpenZeppelin tests, {} tasks, {} wallets per task, chain_id: {}, proxy: {}",
+    println!("Start OpenZeppelin tests, {} tasks, {} wallets per task, chain_id: {}, url: {}",
              tasks, hh_acc_number, chain_id, url);
 
     let files = load_tests();
@@ -47,7 +47,7 @@ fn main() {
         .parse::<usize>()
         .unwrap();
 
-    let proxy_url = env::var("PROXY_URL")
+    let url = env::var("PROXY_URL")
         .expect("PROXY_URL expected");
 
     let chain_id = env::var("NETWORK_ID")
@@ -62,6 +62,6 @@ fn main() {
 
     let rt = Builder::new_current_thread().enable_all().build().unwrap();
     rt.block_on( async move {
-        oz(&proxy_url, tasks, chain_id, hh_acc_number).await;
+        oz(&url, tasks, chain_id, hh_acc_number).await;
     });
 }

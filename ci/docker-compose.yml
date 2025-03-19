@@ -27,14 +27,13 @@ services:
 
   reg_rollup:
     container_name: reg_rollup
-    image: romelabs/rome-apps:${CLI_TAG:-latest}
+    image: romelabs/rome-apps:${ROME_APPS_TAG:-latest}
     environment:
       SERVICE_NAME: cli.sh
       CHAIN_ID: 1001
       SOLANA_RPC: http://solana:8899
       COMMAND: reg-rollup
-      PROGRAM_KEYPAIR: /opt/keys/rome-keypair.json
-      ROLLUP_OWNER: /opt/keys/rollup-owner-keypair.json
+      PROGRAM_ID: CmobH2vR6aUtQ8x4xd1LYNiH6k2G7PFT5StTgWqvy2VU
       UPGRADE_AUTHORITY: /opt/keys/upgrade-authority-keypair.json
     volumes:
       - ./keys:/opt/keys
@@ -44,18 +43,18 @@ services:
     networks:
       - net
 
-  create_balance:
-    container_name: create_balance
-    image: romelabs/rome-apps:${CLI_TAG:-latest}
+  deposit:
+    container_name: deposit
+    image: romelabs/rome-apps:${ROME_APPS_TAG:-latest}
     environment:
       SERVICE_NAME: cli.sh
       CHAIN_ID: 1001
       SOLANA_RPC: http://solana:8899
-      COMMAND: create-balance
+      COMMAND: deposit
       ADDRESS: 0x768b73EE6CA9e0A1bc32868CA65dB89E44696DD8
-      BALANCE: '1000000000000000000000000000'
-      PROGRAM_KEYPAIR: /opt/keys/rome-keypair.json
-      KEYPAIR: /opt/keys/rollup-owner-keypair.json
+      BALANCE: '1000000000000000000000000'
+      PROGRAM_ID: CmobH2vR6aUtQ8x4xd1LYNiH6k2G7PFT5StTgWqvy2VU
+      KEYPAIR: /opt/keys/test-account-keypair.json
     volumes:
       - ./keys:/opt/keys
     depends_on:
@@ -71,7 +70,7 @@ services:
     environment:
       CHAIN_ID: '1001'
       GENESIS_ADDRESS: 0x768b73EE6CA9e0A1bc32868CA65dB89E44696DD8
-      GENESIS_BALANCE: '1000000000000000000000000000'
+      GENESIS_BALANCE: '1000000000000000000000000'
       GENESIS_PRIVATE_KEY: 3f37802575d0840281551d5619256a84762e8236325537e8818730082645be65
       JWT_SECRET: a535c9f4f9df8e00cd6a15a7baa74bb92ca47ebdf59b6f3f2d8a8324b6c1767c
       ROME_GASOMETER_URL: http://proxy:9090
@@ -96,7 +95,6 @@ services:
       retries: 10
       start_period: 10s
 
-
   postgres:
     container_name: postgres
     image: postgres:15
@@ -119,7 +117,7 @@ services:
 
   apply_migrations:
     container_name: apply_migrations
-    image: romelabs/rome-apps:${RHEA_TAG:-latest}
+    image: romelabs/rome-apps:${ROME_APPS_TAG:-latest}
     environment:
       SERVICE_NAME: apply_migrations
       DATABASE_URL: "postgres://hercules:qwerty123@postgres/test_rollup"
@@ -131,7 +129,7 @@ services:
 
   hercules:
     container_name: hercules
-    image: romelabs/rome-apps:${RHEA_TAG:-latest}
+    image: romelabs/rome-apps:${ROME_APPS_TAG:-latest}
     hostname: hercules
     environment:
       SERVICE_NAME: hercules
@@ -154,11 +152,11 @@ services:
 
   rhea:
     container_name: rhea
-    image: romelabs/rome-apps:${RHEA_TAG:-latest}
+    image: romelabs/rome-apps:${ROME_APPS_TAG:-latest}
     hostname: rhea
     environment:
       SERVICE_NAME: rhea
-      RHEA_CONFIG: /opt/cfg/rhea-config.yml
+      RHEA_CONFIG: ${RHEA_CONFIG:-/opt/cfg/rhea-config.yml}
     volumes:
       - ./keys:/opt/keys
       - ./cfg:/opt/cfg
@@ -174,11 +172,11 @@ services:
         
   proxy:
     container_name: proxy
-    image: romelabs/rome-apps:${PROXY_TAG:-latest}
+    image: romelabs/rome-apps:${ROME_APPS_TAG:-latest}
     hostname: proxy
     environment:
       SERVICE_NAME: proxy
-      PROXY_CONFIG: /opt/cfg/proxy-config.yml
+      PROXY_CONFIG: ${PROXY_CONFIG:-/opt/cfg/proxy-config.yml}
     volumes:
       - ./keys:/opt/keys
       - ./cfg:/opt/cfg
@@ -201,33 +199,6 @@ services:
       retries: 10
       start_period: 10s
 
-  proxy_oz:
-    container_name: proxy
-    image: romelabs/rome-apps:${PROXY_TAG:-latest}
-    hostname: proxy
-    environment:
-      SERVICE_NAME: proxy
-      PROXY_CONFIG: /opt/cfg/proxy-config-oz.yml
-    volumes:
-      - ./keys:/opt/keys
-      - ./cfg:/opt/cfg
-    ports:
-      - 9090:9090
-    networks:
-      - net
-    depends_on:
-      solana:
-        condition: service_healthy
-    healthcheck:
-      test: [
-        CMD-SHELL,
-        "curl --location 'proxy:9090' --header 'Content-Type: application/json' --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":83}'"
-      ]
-      interval: 5s
-      timeout: 10s
-      retries: 10
-      start_period: 10s
-
   oz:
     container_name: oz
     image: romelabs/oz:${REF_NAME:-latest}
@@ -237,14 +208,14 @@ services:
     environment:
       REF_NAME: ${REF_NAME:-latest}
       ROME_EVM_TAG: ${ROME_EVM_TAG:-unknown}
-      PROXY_TAG: ${PROXY_TAG:-unknown}
+      ROME_APPS_TAG: ${ROME_APPS_TAG:-unknown}
       GENESIS_PRIVATE_KEY: 3f37802575d0840281551d5619256a84762e8236325537e8818730082645be65
       TASKS_NUMBER: ${TASKS_NUMBER:-16}
-      PROXY_URL: "http://proxy:9090"
+      PROXY_URL: ${PROXY_URL:-http://proxy:9090}
       NETWORK_ID: 1001
       HARDHAT_ACCOUNTS_NUMBER: 10
     depends_on:
-      proxy_oz:
+      proxy:
         condition: service_started
     networks:
       - net
@@ -264,7 +235,7 @@ services:
       done;
 
       /opt/bin/solana -u http://solana:8899 -v airdrop 1000 /opt/keys/upgrade-authority-keypair.json; 
-      /opt/bin/solana -u http://solana:8899 -v airdrop 1000 /opt/keys/rollup-owner-keypair.json; 
+      /opt/bin/solana -u http://solana:8899 -v airdrop 1000 /opt/keys/test-account-keypair.json; 
       "
     volumes:
       - ./keys:/opt/keys

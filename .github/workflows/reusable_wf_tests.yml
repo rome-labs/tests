@@ -5,14 +5,14 @@ on:
     inputs:
       docker_image_tags:
         type: string
-        description: 'JSON object containing Docker image tags (e.g., {"evm": "latest", "apps": "latest", "geth": "latest", "tests": "latest", "uniswap": "latest", "openzeppelin": "latest"})'
+        description: 'JSON object containing Docker image tags (e.g., {"evm": "latest", "apps": "latest", "geth": "latest", "tests": "latest", "uniswap": "latest"})'
         required: true
-        default: '{"evm": "latest", "apps": "latest", "geth": "latest", "tests": "latest", "uniswap": "latest", "openzeppelin": "latest"}'
+        default: '{"evm": "latest", "apps": "latest", "geth": "latest", "tests": "latest", "uniswap": "latest"}'
       tests_list:
         type: string
-        description: 'Comma-separated list of tests to run (e.g., tests,uniswap_geth,uniswap_proxy,openzeppelin_geth,openzeppelin_proxy)'
+        description: 'Comma-separated list of tests to run (e.g., tests,uniswap_op_geth,uniswap_proxy,load_test_proxy)'
         required: true
-        default: 'tests,uniswap_proxy,uniswap_geth'
+        default: 'tests'
       rome_tests_ref_name:
         type: string
         description: 'Test repo branch name to use for running the tests'
@@ -20,16 +20,58 @@ on:
         default: 'main'
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  run-tests:
+  prepare:
+    name: "Prepare matrix"
     runs-on: ubuntu-latest
+    outputs:
+      test_matrix: ${{ steps.json.outputs.tests || '"["tests"]"' }}
+    steps:
+      - name: Build matrix
+        uses: actions/github-script@v7
+        id: json
+        with:
+          script: |
+            let testsList = '${{ inputs.tests_list }}'.split(',').map(test => test.trim());
+            let arguments = ["UniswapV2ERC20", "UniswapV2Factory", "UniswapV2Pair"];
+            let matrix = [];
+
+            testsList.forEach(test => {
+              if (test === "uniswap_proxy" || test === "uniswap_op_geth") {
+                arguments.forEach(arg => {
+                  matrix.push({ "test": test, "argument": arg });
+                });
+              } else {
+                matrix.push({ "test": test, "argument": "" });
+              }
+            });
+            let json = JSON.stringify(matrix);
+            console.log(json);
+            core.setOutput('tests', json); 
+      - name: Get output
+        run: echo "${{ steps.json.outputs.tests }}"
+
+  run-tests:
+    name: "# "
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # max-parallel: 3
+      matrix:
+        include: ${{ fromJson(needs.prepare.outputs.test_matrix) }}
     steps:
       - name: 'Set Environment Variables'
         id: set_env
         run: |
           # Safely handle docker_image_tags input, fallback to 'latest' if missing
           docker_image_tags='${{ inputs.docker_image_tags }}'
-          
+
           # Ensure fallback to latest for missing keys using jq's fallback operator (//)
           evm_ver=$(echo "$docker_image_tags" | jq -r '.evm // "latest"')
           apps_ver=$(echo "$docker_image_tags" | jq -r '.apps // "latest"')
@@ -41,59 +83,23 @@ jobs:
           # Export environment variables to be available to subsequent steps
           echo "ROME_EVM_TAG=$evm_ver" >> $GITHUB_ENV
           echo "GETH_TAG=$geth_ver" >> $GITHUB_ENV
+          echo "ROME_APPS_TAG=$apps_ver" >> $GITHUB_ENV
           echo "RHEA_TAG=$apps_ver" >> $GITHUB_ENV
           echo "PROXY_TAG=$apps_ver" >> $GITHUB_ENV
           echo "CLI_TAG=$apps_ver" >> $GITHUB_ENV
           echo "TESTS_TAG=$tests_ver" >> $GITHUB_ENV
           echo "UNISWAP_V2_TAG=$uniswap_ver" >> $GITHUB_ENV
           echo "OPENZEPPELIN_TAG=$openzeppelin_ver" >> $GITHUB_ENV
-
-          # Parse the list of tests and set the appropriate environment variables
-          tests_list='${{ inputs.tests_list }}'
-          IFS=',' read -r -a tests <<< "$tests_list"
-
-          # Initialize all test flags to false
-          TESTS=false
-          UNISWAP_GETH=false
-          UNISWAP_PROXY=false
-          OPENZEPPELIN_GETH=false
-          OPENZEPPELIN_PROXY=false
-
-          # Set the test flags to true based on the tests_list input
-          for test in "${tests[@]}"
-          do
-            case "$test" in
-              tests)
-                TESTS=true
-                ;;
-              uniswap_geth)
-                UNISWAP_GETH=true
-                ;;
-              uniswap_proxy)
-                UNISWAP_PROXY=true
-                ;;
-              openzeppelin_geth)
-                OPENZEPPELIN_GETH=true
-                ;;
-              openzeppelin_proxy)
-                OPENZEPPELIN_PROXY=true
-                ;;
-            esac
-          done
-
-          # Write test flags to $GITHUB_ENV for use in subsequent steps
-          echo "TESTS=$TESTS" >> $GITHUB_ENV
-          echo "UNISWAP_GETH_TESTS=$UNISWAP_GETH" >> $GITHUB_ENV
-          echo "UNISWAP_PROXY_TESTS=$UNISWAP_PROXY" >> $GITHUB_ENV
-          echo "OPENZEPPELIN_GETH_TESTS=$OPENZEPPELIN_GETH" >> $GITHUB_ENV
-          echo "OPENZEPPELIN_PROXY_TESTS=$OPENZEPPELIN_PROXY" >> $GITHUB_ENV
+          echo "GETH_URL=http://geth:8545" >> $GITHUB_ENV
+          echo "PROXY_URL=http://proxy:9090" >> $GITHUB_ENV
+          echo "EXTENDED_LOGS=--nocapture" >> $GITHUB_ENV
 
           echo "TESTS_REF_NAME=${{ inputs.rome_tests_ref_name || 'main' }}" >> $GITHUB_ENV
 
           echo "---------------------------ENVIRONMENT VARIABLES-------------------------------------"
           cat $GITHUB_ENV
           echo "--------------------------------------------------------------------------------------"
-      
+
       - name: 'Checkout tests repository'
         uses: actions/checkout@v4
         with:
@@ -105,70 +111,64 @@ jobs:
       - name: Install Compose
         uses: ndeloof/install-compose-action@v0.0.1
         with:
-          version: v2.1.0 # defaults to 'latest'
+          version: v2.4.1 # defaults to 'latest'
           legacy: true    # will also install in PATH as `docker-compose`
-        
+
       - name: 'Login to Docker Hub'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
 
-      - name: 'Run EVM tests'
-        if: env.TESTS == 'true'
+      - name: Run ${{ matrix.test }} ${{ matrix.argument }}
+        timeout-minutes: 20
         run: |
+          echo "docker ps -a: "
+          docker ps -a
           cd tests
-          ls -l
-          chmod +x ./ci/scripts/tests.sh
-          ./ci/scripts/tests.sh
-        shell: bash
+          chmod +x ./ci/scripts/${{ matrix.test }}.sh
+          if [[ -n "${{ matrix.argument }}" ]]; then
+            ./ci/scripts/${{ matrix.test }}.sh ${{ matrix.argument }}
+          else
+            ./ci/scripts/${{ matrix.test }}.sh
+          fi
+        
+      - name: Upload logs for ${{ matrix.test }}
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-${{ matrix.test }}${{ matrix.argument }}
+          path: tests/records/${{ matrix.test }}${{ matrix.argument }}.txt
 
-      - name: 'Run State Comparison tests'
-        if: env.TESTS == 'true'
-        run: |
-          cd tests
-          ls -l
-          chmod +x ./ci/scripts/state_comparison.sh
-          ./ci/scripts/state_comparison.sh
-        shell: bash
+  collect-logs:
+    name: "Collect logs"
+    needs: run-tests
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: 'Checkout tests repository'
+        if: always()
+        uses: actions/checkout@v4
+        with:
+          repository: rome-labs/tests
+          path: tests
+          ref: ${{env.TESTS_REF_NAME || 'main'}}
+          token: ${{ secrets.GIT_ROLLUP_TOKEN }}
 
-      - name: 'Run uniswap geth tests'
-        if: env.UNISWAP_GETH_TESTS == 'true'
-        run: |
-          cd tests
-          ls -l
-          chmod +x ./ci/scripts/uniswap_op_geth.sh
-          ./ci/scripts/uniswap_op_geth.sh
-        shell: bash
+      - name: Download all logs
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          pattern: test-logs-*
+          path: tests/records/
+          merge-multiple: true
 
-      - name: 'Run uniswap proxy tests'
-        if: env.UNISWAP_PROXY_TESTS == 'true'
-        run: |
-          cd tests
-          ls -l
-          chmod +x ./ci/scripts/uniswap_proxy.sh
-          ./ci/scripts/uniswap_proxy.sh
-        shell: bash
-
-      - name: 'Run openzeppelin geth tests'
-        if: env.OPENZEPPELIN_GETH_TESTS == 'true'
-        run: |
-          cd tests
-          ls -l
-          chmod +x ./ci/scripts/open_zeppelin_op_geth.sh
-          ./ci/scripts/open_zeppelin_op_geth.sh
-        shell: bash
-
-      - name: 'Run openzeppelin proxy tests'
-        if: env.OPENZEPPELIN_PROXY_TESTS == 'true'
-        run: |
-          cd tests
-          ls -l
-          chmod +x ./ci/scripts/open_zeppelin_proxy.sh
-          ./ci/scripts/open_zeppelin_proxy.sh
-        shell: bash
+      - name: List downloaded logs
+        if: always()
+        run: ls -l tests/records/
 
       - name: 'Generate test reports'
+        if: always()
         run: |
           cd tests
           chmod +x ./ci/scripts/generate_ctrf.sh
@@ -176,26 +176,7 @@ jobs:
           echo "Test resuls file content:"
           ls -l
           ls -l records
-          cat records/test_results.json
-          cat records/tests.txt
         shell: bash
-
-      - name: 'Send test results to Slack'
-        run: |
-          echo "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          export SLACK_WEBHOOK_URL='${{ secrets.SLACK_WEBHOOK_TESTING_NOTIFICATION }}'
-          npx slack-ctrf results ./tests/records/test_results.json -t "Testing summary for EVM contract"
-        if: always()
-
-      - name: Publish CTRF Test Summary Results
-        if: always()
-        uses: ctrf-io/github-test-reporter@v1
-        with:
-          report-path: './tests/records/test_results.json' # Path or glob pattern to the CTRF report JSON file.
-          summary-report: true
-          test-report: true
-          failed-report: true
-          skipped-report: true
 
       - name: 'Tar logs from records folder'
         run: tar cvzf ./logs.tgz ./tests/records
@@ -208,24 +189,11 @@ jobs:
           path: ./logs.tgz
         if: always()
 
-      # - name: Post to a Slack channel
-      #   id: slackmessage
-      #   uses: slackapi/slack-github-action@v1.26.0
-      #   with:
-      #     # Slack channel id, channel name, or user id to post message.
-      #     # See also: https://api.slack.com/methods/chat.postMessage#channels
-      #     # You can pass in multiple channels to post to by providing a comma-delimited list of channel IDs.
-      #     channel-id: 'testing-notifications'
-      #     # For posting a simple plain text message
-      #     slack-message: "GitHub build result: ${{ job.status }}\n${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-      #   env:
-      #     SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-      #   if: always()
-        
       - name: 'Parse tests results'
+        if: always()
         run: |
-          sudo apt-get install jq         
-          FAILED_TESTS=$(jq '.results.summary.failed' ./tests/records/test_results.json)  
+          sudo apt-get install jq
+          FAILED_TESTS=$(jq '.results.summary.failed' ./tests/records/test_results.json)
           if [ "$FAILED_TESTS" -gt 0 ]; then
             echo "Tests finished with errors: $FAILED_TESTS tests failed."
             exit 1;

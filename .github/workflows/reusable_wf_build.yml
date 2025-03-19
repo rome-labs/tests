@@ -21,9 +21,18 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true  
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rome_evm_ref_name: ["${{ inputs.rome_evm_ref_name || 'main' }}"]
     steps:
       - name: 'Prepare environment variables from input'
         id: prepare_env
@@ -35,12 +44,20 @@ jobs:
           echo "ROME_SDK_REF_NAME=$rome_sdk_ref_name" >> $GITHUB_ENV
           echo "ROME_TESTS_REF_NAME=$rome_tests_ref_name" >> $GITHUB_ENV
 
+      - name: 'Set rome_evm_private_ref_name'
+        run: |
+          if [ "${{ matrix.rome_evm_ref_name }}" == "testnet" ]; then
+            echo "ROME_EVM_PRIVATE_REF_NAME=debug_testnet" >> $GITHUB_ENV
+          else
+            echo "ROME_EVM_PRIVATE_REF_NAME=${{ matrix.rome_evm_ref_name }}" >> $GITHUB_ENV
+          fi
+
       - name: 'Checkout rome-evm reposotory'
         uses: actions/checkout@master
         with:
           path: rome-evm
           repository: rome-labs/rome-evm
-          ref: ${{env.ROME_EVM_REF_NAME}}
+          ref: ${{ env.ROME_EVM_PRIVATE_REF_NAME }}
           token: ${{secrets.GIT_ROLLUP_TOKEN}}
       
       - name: 'Checkout rome-sdk reposotory'
@@ -66,12 +83,33 @@ jobs:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
 
-      - name: 'Build tests image'
-        uses: docker/build-push-action@v4.0.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Cache Docker layers
+        uses: actions/cache@v3
+        with:
+          path: /tmp/.buildx-cache
+          key: buildx-${{ github.ref_name }}
+          restore-keys: |
+            buildx-${{ github.ref_name }}-
+            buildx-master-
+
+      - name: 'Set docker image tag'
+        run: |
+          if [ "${{ matrix.rome_evm_ref_name }}" == "testnet" ]; then
+            echo "DOCKER_TAG=${{env.ROME_TESTS_REF_NAME}}_${{ matrix.rome_evm_ref_name }}" >> $GITHUB_ENV
+          else
+            echo "DOCKER_TAG=${{env.ROME_TESTS_REF_NAME}}" >> $GITHUB_ENV
+          fi
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
         with:
           context: .
           push: true
           file: tests/ci/Dockerfile
-          tags: romelabs/tests:${{env.ROME_TESTS_REF_NAME}}
-          labels: romelabs/tests:${{env.ROME_TESTS_REF_NAME}}
-
+          tags: romelabs/tests:${{env.DOCKER_TAG}}
+          labels: romelabs/tests:${{env.DOCKER_TAG}}
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache

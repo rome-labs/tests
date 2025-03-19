@@ -10,6 +10,6 @@ payers:
       - 0xe235b9caf55b58863Ae955A372e49362b0f93726
       - 0x8870D7800Dd9B1CF34DBC54D348F70A342A4606D
 upgrade_authority_keypair: "/opt/ci/keys/upgrade-authority-keypair.json"
-rollup_owner_keypair: "/opt/ci/keys/rollup-owner-keypair.json"
+user_keypair: "/opt/ci/keys/test-account-keypair.json"
 number_holders: 256
 proxy_host: "0.0.0.0:9090"

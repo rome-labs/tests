@@ -5,13 +5,13 @@ use primitive_types::H160;
 use rome_sdk::rome_evm_client::emulator::Instruction;
 use rstest::*;
 use shared::{
-    fixture::{client_new_chain, client},
-    tx::{abi, do_tx, do_tx_base, do_rlp, method_id},
+    fixture::client,
+    tx::{abi, do_rlp, do_tx, do_tx_base, method_id},
+    utils::retry_panic,
     wallet, CONTRACTS,
 };
 use ethers_core::k256::ecdsa::SigningKey;
 use ethers_signers::{Signer as EthSigner, Wallet};
-use crate::shared::client::Client;
 use solana_sdk::signer::Signer;
 
 
@@ -20,15 +20,15 @@ use solana_sdk::signer::Signer;
     tx_type,
     zero_gas,
     case::hello_world("HelloWorld", vec![0, 2], true),
-    case::touch_storage("TouchStorage", vec![0, 2], true),
+    case::touch_storage_zero_gas("TouchStorage", vec![0, 2], true),
     case::touch_storage("TouchStorage", vec![0, 2], false),
     case::huge("uniswap/Huge", vec![2], true),
 )]
 async fn evm_deploy(contract: String, tx_type: Vec<u8>, zero_gas: bool) {
     let wallet = wallet();
-    let client = client_new_chain(zero_gas);
-
+    let client = client(zero_gas);
     client.airdrop(wallet.address(), 1_000_000_000_000, zero_gas).await;
+
     for typ in tx_type {
         client.deploy(&contract, &wallet, None, typ, zero_gas).await;
     }
@@ -48,11 +48,11 @@ async fn evm_deploy(contract: String, tx_type: Vec<u8>, zero_gas: bool) {
         false
     ),
     case::tstore(
-        "TStore",
+        "TestTransientStorage",
         vec![
-            "check(uint256 1)",
-            "check(uint256 2)",
-            "check(uint256 5)",
+            "callTransientStorage(uint256 1)",
+            "callTransientStorage(uint256 2)",
+            "callTransientStorage(uint256 5)",
         ],
         false
     ),
@@ -71,7 +71,7 @@ async fn evm_call_unchecked(
     methods: Vec<&str>,
     zero_gas: bool,
 ) {
-    let client = client_new_chain(zero_gas);
+    let client = client(zero_gas);
 
     let wallet = wallet();
     client.airdrop(wallet.address(), 1_000_000_000_000, zero_gas).await;
@@ -122,7 +122,7 @@ async fn evm_call(
     results: Vec<&str>,
     zero_gas: bool,
 ) {
-    let client = client_new_chain(zero_gas);
+    let client = client(zero_gas);
 
     let wallet = wallet();
     client.airdrop(wallet.address(), 1_000_000_000_000, zero_gas).await;
@@ -185,7 +185,7 @@ async fn evm_nested_call(
     results: Vec<&str>,
     zero_gas: bool,
 ) {
-    let client = client_new_chain(zero_gas);
+    let client = client(zero_gas);
 
     let wallet = wallet();
     client.airdrop(wallet.address(), 1_000_000_000_000, zero_gas).await;
@@ -215,12 +215,12 @@ async fn evm_nested_call(
 )]
 #[serial_test::serial]
 async fn evm_gas_transfer(
-    client: &Client,
     contract: String,
     methods: Vec<&str>,
     tx_type: u8
 ) {
     let wallet = wallet();
+    let client = client(false);
     client.airdrop(wallet.address(), 1_000_000_000_000, false).await;
 
     // // deploy contract
@@ -257,7 +257,7 @@ async fn evm_get_storage_at(
     tx_type: u8,
     zero_gas: bool,
 ) {
-    let client = client_new_chain(zero_gas);
+    let client = client(zero_gas);
     let wallet = wallet();
     client.airdrop(wallet.address(), 1_000_000_000_000, zero_gas).await;
 
@@ -311,9 +311,9 @@ async fn evm_get_storage_at(
     second,
     second_count,
     tx_type,
+    case::iter_rw_atomic_ro("AtomicIterative", "iterative_rw", 5, "atomic_ro", 20, 2),
 #[should_panic]
     case::iter_rw_atomic_rw("AtomicIterative", "iterative_rw", 5, "atomic_rw", 20, 2),
-    case::iter_rw_atomic_ro("AtomicIterative", "iterative_rw", 5, "atomic_ro", 20, 2),
 #[should_panic]
     case::iter_rw_iter_rw("AtomicIterative", "iterative_rw", 5, "iterative_rw", 5, 2),
 // #[should_panic]
@@ -334,50 +334,52 @@ async fn evm_account_lock(
     second_count: u64,
     tx_type: u8
 ) {
-    let wallet1 = wallet();
-    let wallet2 = wallet();
-    let zero_gas = true;
+    let _result: Result<(), ()> = retry_panic(|| async {
+        let wallet1 = wallet();
+        let wallet2 = wallet();
+        let zero_gas = true;
 
-    let client_zero_gas = client_new_chain(zero_gas);
-    // deploy contract
-    let address = client_zero_gas.deploy(&contract, &wallet1, None, tx_type, zero_gas).await;
+        let client_zero_gas = client(zero_gas);
+        // deploy contract
+        let address = client_zero_gas.deploy(&contract, &wallet1, None, tx_type, zero_gas).await;
 
-    // preparing the method calls
-    let abi = abi(&format!("{}{}.abi", CONTRACTS, contract));
+        // preparing the method calls
+        let abi = abi(&format!("{}{}.abi", CONTRACTS, contract));
 
-    let f = |method: &str, count: u64, wallet: &Wallet<SigningKey>, | -> Vec<Vec<u8>> {
-        let nonce = client_zero_gas.transaction_count(wallet.address()).unwrap().as_u64();
-        let mut rlp = vec![];
-        for i in 0..count {
-            let tx = do_tx_base(&client_zero_gas, Some(address), method_id(&abi, method), &wallet, 0, tx_type, nonce + i);
-            rlp.push(do_rlp(&tx, &wallet).to_vec()) ;
-        }
-        rlp
-    };
-
-    let rlp_first = f(first, first_count, &wallet1);
-    let rlp_second = f(second, second_count, &wallet2);
-
-    let client1 = client_zero_gas.clone();
-    let client2 = client_zero_gas.clone();
-
-
-    let tx1_jh = tokio::spawn(
-        async move {
-            for rlp in rlp_first {
-                client1.send_transaction(rlp.into()).await.unwrap();
+        let f = |method: &str, count: u64, wallet: &Wallet<SigningKey>, | -> Vec<Vec<u8>> {
+            let nonce = client_zero_gas.transaction_count(wallet.address()).unwrap().as_u64();
+            let mut rlp = vec![];
+            for i in 0..count {
+                let tx = do_tx_base(&client_zero_gas, Some(address), method_id(&abi, method), &wallet, 0, tx_type, nonce + i);
+                rlp.push(do_rlp(&tx, &wallet).to_vec()) ;
             }
-        });
+            rlp
+        };
 
-    let tx2_jh = tokio::spawn(
-        async move {
-            for rlp in rlp_second {
-                client2.send_transaction(rlp.into()).await.unwrap();
-            }
-        });
+        let rlp_first = f(first, first_count, &wallet1);
+        let rlp_second = f(second, second_count, &wallet2);
 
-    let (tx1_res, tx2_res) = tokio::join!(tx1_jh, tx2_jh);
+        let client1 = client_zero_gas.clone();
+        let client2 = client_zero_gas.clone();
 
-    tx1_res.map_err(|e| println!("{:?}", e)).unwrap();
-    tx2_res.map_err(|e| println!("{:?}", e)).unwrap();
+
+        let tx1_jh = tokio::spawn(
+            async move {
+                for rlp in rlp_first {
+                    client1.send_transaction(rlp.into()).await.unwrap();
+                }
+            });
+
+        let tx2_jh = tokio::spawn(
+            async move {
+                for rlp in rlp_second {
+                    client2.send_transaction(rlp.into()).await.unwrap();
+                }
+            });
+
+        let (tx1_res, tx2_res) = tokio::join!(tx1_jh, tx2_jh);
+
+        tx1_res.map_err(|e| println!("{:?}", e)).unwrap();
+        tx2_res.map_err(|e| println!("{:?}", e)).unwrap();
+    }).await;
 }

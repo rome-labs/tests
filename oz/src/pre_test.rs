@@ -2,9 +2,9 @@ use {
     glob::glob,
     crate::OZ_CONTRACTS,
     tokio::process::Command,
-    // ethers_core::k256::ecdsa::SigningKey,
     ethers_signers::{Signer, Wallet,},
     ethers::prelude::{k256::SecretKey, Address},
+    tokio::time::{sleep, Duration},
 };
 
 pub fn load_tests() -> Vec<String> {
@@ -93,6 +93,8 @@ pub async fn airdrop(private_keys: &Vec<Vec<String>>, url: &str, genesis_pk: Str
             println!("airdrop 20000 tokens to {}", address);
             println!("{}", &stdout);
             println!("{}", &stderr);
+
+            sleep(Duration::from_millis(1000)).await;
         }
     }
 }

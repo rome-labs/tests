@@ -1,36 +1,37 @@
-# tests
-tests of the evm, rhea
+# Tests
+This repository contains tests for the EVM and Rhea projects.
 
 ## Integration tests 
+1. To run integration tests, execute the following commands from the root directory:
 
-1. To run integration tests simply execute the following from root
+For executing Uniswap tests:
 
-For executing uniswap tests:-
-
-```
-./scripts/uniswap_proxy.sh
-```
-
-For executing open-zeppelin tests:-
-
-```
-./scripts/open_zeppelin_proxy.sh
+```sh
+./ci/scripts/uniswap_proxy.sh
 ```
 
-For rome tests:- 
-```
-./scripts/evm.sh
-```
+For executing OpenZeppelin tests:
 
-This will dump a set of logs for each test suite namely:- 
-
-- Uniswap Tests for proxy and Op-Geth 
-- Open Zeppelin tests for proxy and Op-Geth 
-
-2. To generate CTRF execute the following
-
-```
-./scripts/generate_ctrf.sh 
+```sh
+./ci/scripts/open_zeppelin_proxy.sh
 ```
 
-The executed CTRF will be available inside "records/ctrf.json"
+For executing Rome tests:
+
+```sh
+./ci/scripts/evm.sh
+```
+
+These commands will generate a set of logs in `records` folder, including:
+
+- Uniswap Tests for proxy and Op-Geth
+- OpenZeppelin tests for proxy and Op-Geth 
+
+1. To generate the CTRF, execute the following command:
+
+```sh
+./ci/scripts/generate_ctrf.sh 
+```
+
+The generated CTRF will be available inside `records/ctrf.json`.
+

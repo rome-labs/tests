@@ -5,6 +5,7 @@ on:
 
 jobs:
   prepare_env:
+    name: "Prepare environment"
     runs-on: ubuntu-latest
     env:
       # Set the Branch/Ref of the github repositories to be used for building the image
@@ -67,6 +68,7 @@ jobs:
           echo "rome_sdk_ref_name=${{ env.ROME_SDK_REF_NAME || 'main' }}" >> $GITHUB_OUTPUT
 
   call-reusable-build:
+    name: "Build"
     uses: ./.github/workflows/reusable_wf_build.yml
     needs: prepare_env
     secrets: inherit
@@ -74,8 +76,9 @@ jobs:
       rome_tests_ref_name: ${{ needs.prepare_env.outputs.rome_tests_ref_name }}
       rome_evm_ref_name: ${{ needs.prepare_env.outputs.rome_evm_ref_name || 'main' }}
       rome_sdk_ref_name: ${{ needs.prepare_env.outputs.rome_sdk_ref_name || 'main' }}
-        
+
   call-reusable-tests:
+    name: "Test"
     uses: ./.github/workflows/reusable_wf_tests.yml
     needs: [prepare_env, call-reusable-build]
     secrets: inherit
@@ -100,4 +103,3 @@ jobs:
           docker pull romelabs/tests:${{ needs.prepare_env.outputs.rome_tests_ref_name }}
           docker tag romelabs/tests:${{ needs.prepare_env.outputs.rome_tests_ref_name }} romelabs/tests:latest
           docker push romelabs/tests:latest
-    

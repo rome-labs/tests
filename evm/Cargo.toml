@@ -6,12 +6,12 @@ edition = "2021"
 [dependencies]
 
 [dev-dependencies]
-solana-program = "2.1.7"
-solana-client = "2.1.7"
-solana-sdk = "2.1.7"
-
+solana-program = "=2.1.7"
+solana-client = "=2.1.7"
+solana-sdk = "=2.1.7"
 anyhow = "1.0.86"
 ethers = "2.0.14"
+futures = "0.3"
 serde = { version = "1.0", features = ["derive", "rc"] }
 tracing = "0.1.40"
 libsecp256k1 = { version = "0.5.0", default-features = false, features = ["static-context", "hmac"] }

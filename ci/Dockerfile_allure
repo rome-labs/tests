@@ -1,4 +1,4 @@
-FROM romelabs/openzeppelin-contracts:develop as oz-contracts
+FROM romelabs/openzeppelin-contracts:main as oz-contracts
 FROM ubuntu:24.04
 
 ENV TZ=Europe/Moscow

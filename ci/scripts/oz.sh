@@ -14,7 +14,7 @@ docker-compose  up airdrop_oz
 
 docker-compose  up reg_rollup
 
-docker-compose  up create_balance
+docker-compose  up deposit
 
 docker-compose  up oz -d
 
