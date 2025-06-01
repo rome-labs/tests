@@ -48,7 +48,7 @@ permissions:
 jobs:
   build:
     runs-on:
-      labels: ubuntu-22.04-8core-32gb-300
+      labels: ubuntu-latest
     steps:
       - name: "Install Docker-compose"
         uses: ndeloof/install-compose-action@v0.0.1

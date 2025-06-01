@@ -28,7 +28,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04-8core-32gb-300
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
