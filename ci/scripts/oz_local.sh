@@ -1,43 +1,14 @@
 #!/bin/bash
+source ./ci/scripts/functions.sh
 
-has_container_exited() {
-  local container_name="$1"
-  if [ -n "$(docker ps -a --filter "name=${container_name}" --filter "status=exited" -q)" ]; then
-    return 0  
-  else
-    return 1
-  fi
-}
-
-airdrop() {
-  docker cp ./keys/rhea-sender.json solana:./
-  docker cp ./keys/proxy-sender.json solana:./
-  docker cp ./keys/test-account-keypair.json solana:./
-  docker cp ./keys/upgrade-authority-keypair.json solana:./
-  docker cp ./keys/id1.json solana:./
-
-  docker exec solana solana -u http://localhost:8899 airdrop 10000
-  docker exec solana solana -u http://localhost:8899 airdrop 10000 ./proxy-sender.json
-  docker exec solana solana -u http://localhost:8899 airdrop 10000 ./rhea-sender.json
-  docker exec solana solana -u http://localhost:8899 airdrop 10000000 ./test-account-keypair.json
-  docker exec solana solana -u http://localhost:8899 airdrop 10000 ./upgrade-authority-keypair.json
-  docker exec solana solana -u http://localhost:8899 airdrop 10000 ./id1.json
-}
 
 cd ./ci
 
-docker-compose up -d solana postgres apply_migrations proxy geth hercules rhea
+docker-compose up -d solana postgres apply_migrations proxy geth hercules rhea > /dev/null
 airdrop
-
-docker-compose up -d reg_rollup
-until has_container_exited "reg_rollup"; do
-  sleep 2
-done
-
-docker-compose up -d deposit
-until has_container_exited "deposit"; do
-  sleep 2
-done
+airdrop_oz
+regrollup
+deposit
 
 
 export PROXY_URL=http://localhost:9090

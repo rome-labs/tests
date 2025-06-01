@@ -7,12 +7,16 @@ use rstest::*;
 use shared::{
     fixture::client,
     tx::{abi, do_rlp, do_tx, do_tx_base, method_id},
-    utils::retry_panic,
-    wallet, CONTRACTS,
+    utils::{retry_panic}, 
+    wallet, CONTRACTS, WITHDRAWAL_ADDRESS, test_account,
 };
-use ethers_core::k256::ecdsa::SigningKey;
+use ethers_core::{
+    k256::ecdsa::SigningKey, types::U256,
+};
 use ethers_signers::{Signer as EthSigner, Wallet};
 use solana_sdk::signer::Signer;
+use std::str::FromStr;
+use ethers::types::Address;
 
 
 #[rstest(
@@ -27,10 +31,10 @@ use solana_sdk::signer::Signer;
 async fn evm_deploy(contract: String, tx_type: Vec<u8>, zero_gas: bool) {
     let wallet = wallet();
     let client = client(zero_gas);
-    client.airdrop(wallet.address(), 1_000_000_000_000, zero_gas).await;
+    client.airdrop(wallet.address(), U256::exp10(19)).await;
 
     for typ in tx_type {
-        client.deploy(&contract, &wallet, None, typ, zero_gas).await;
+        client.deploy(&contract, &wallet, None, typ).await;
     }
 }
 
@@ -65,6 +69,17 @@ async fn evm_deploy(contract: String, tx_type: Vec<u8>, zero_gas: bool) {
         ],
         false
     ),
+    case::revert(
+        "RevertFactory",
+        vec![
+            "deploy",
+            "case_1",
+            "case_2",
+            "case_3",
+            "case_4",
+        ],
+        false,
+    ),
 )]
 async fn evm_call_unchecked(
     contract: String,
@@ -74,12 +89,12 @@ async fn evm_call_unchecked(
     let client = client(zero_gas);
 
     let wallet = wallet();
-    client.airdrop(wallet.address(), 1_000_000_000_000, zero_gas).await;
+    client.airdrop(wallet.address(), U256::exp10(19)).await;
     // deploy contract
-    let address = client.deploy(&contract, &wallet, None, 2, zero_gas).await;
+    let address = client.deploy(&contract, &wallet, None, 2).await;
     // update storage
     for method in methods {
-        client.method_call(&contract, &address, method, &wallet, 2, zero_gas).await
+        client.method_call(&contract, &address, method, &wallet, 0.into(), 2).await
     }
 }
 
@@ -125,12 +140,12 @@ async fn evm_call(
     let client = client(zero_gas);
 
     let wallet = wallet();
-    client.airdrop(wallet.address(), 1_000_000_000_000, zero_gas).await;
+    client.airdrop(wallet.address(), U256::exp10(19)).await;
     // deploy contract
-    let address = client.deploy(&contract, &wallet, None, 2, zero_gas).await;
+    let address = client.deploy(&contract, &wallet, None, 2).await;
     // update storage
     for method in methods {
-        client.method_call(&contract, &address, method, &wallet, 2, zero_gas).await
+        client.method_call(&contract, &address, method, &wallet, 0.into(), 2).await
     }
     // call eth_calls to check the results
     for (eth_call, expected_hex) in eth_calls.iter().zip(results) {
@@ -188,15 +203,15 @@ async fn evm_nested_call(
     let client = client(zero_gas);
 
     let wallet = wallet();
-    client.airdrop(wallet.address(), 1_000_000_000_000, zero_gas).await;
+    client.airdrop(wallet.address(), U256::exp10(19)).await;
     // deploy contract
-    let contract_addr = client.deploy(&contract, &wallet, None, 2, zero_gas).await;
+    let contract_addr = client.deploy(&contract, &wallet, None, 2).await;
     // deploy caller
     let ctor = Value::encode(&[Value::Address(H160::from_slice(contract_addr.as_bytes()))]);
-    let caller_addr = client.deploy(&caller, &wallet, Some(ctor), 2, zero_gas).await;
+    let caller_addr = client.deploy(&caller, &wallet, Some(ctor), 2).await;
     // call nested contract's methods
     for method in methods {
-        client.method_call(&caller, &caller_addr, method, &wallet, 2, zero_gas).await
+        client.method_call(&caller, &caller_addr, method, &wallet, 0.into(), 2).await
     }
     // call eth_calls to check the results
     for (eth_call, expected_hex) in eth_calls.iter().zip(results) {
@@ -221,25 +236,29 @@ async fn evm_gas_transfer(
 ) {
     let wallet = wallet();
     let client = client(false);
-    client.airdrop(wallet.address(), 1_000_000_000_000, false).await;
+    client.airdrop(wallet.address(), U256::exp10(19)).await;
 
     // // deploy contract
-    let address = client.deploy(&contract, &wallet, None, tx_type, false).await;
+    let address = client.deploy(&contract, &wallet, None, tx_type).await;
     let abi = abi(&format!("{}{}.abi", CONTRACTS, contract));
 
     // call methods and compare the estimate gas with gas_transfer
     for method in methods {
-        let tx = do_tx(&client, Some(address), method_id(&abi, method), &wallet, 0, tx_type);
+        let tx = do_tx(&client, Some(address), method_id(&abi, method), &wallet, 0.into(), tx_type);
 
         let before = client.get_balance(wallet.address()).unwrap();
-        client.method_call(&contract, &address, method, &wallet, tx_type, false).await;
+        client.method_call(&contract, &address, method, &wallet, 0.into(), tx_type).await;
         let after = client.get_balance(wallet.address()).unwrap();
 
-        let estimage_gas = tx.gas().unwrap();
+        let estimage_gas = tx.gas().unwrap().clone();
         let gas_transfer = before.checked_sub(after).unwrap();
+        let gas_price = client.gas_price().unwrap();
 
-        assert!(gas_transfer >= 0.into());
-        assert!(gas_transfer <= *estimage_gas);
+        let fee = gas_price.checked_mul(5000.into()).unwrap();
+        let estimated = estimage_gas.checked_mul(gas_price).unwrap(); 
+        
+        assert!(gas_transfer >= fee);
+        assert!(gas_transfer <= estimated);
     }
 
 }
@@ -259,14 +278,14 @@ async fn evm_get_storage_at(
 ) {
     let client = client(zero_gas);
     let wallet = wallet();
-    client.airdrop(wallet.address(), 1_000_000_000_000, zero_gas).await;
+    client.airdrop(wallet.address(), U256::exp10(19)).await;
 
     // deploy contract
-    let address = client.deploy(&contract, &wallet, None, tx_type, zero_gas).await;
+    let address = client.deploy(&contract, &wallet, None, tx_type).await;
 
     // emulate the call of the contract method
     let abi = abi(&format!("{}{}.abi", CONTRACTS, contract));
-    let tx = do_tx(&client, Some(address), method_id(&abi, &method), &wallet, 0, tx_type);
+    let tx = do_tx(&client, Some(address), method_id(&abi, &method), &wallet, 0.into(), tx_type);
     let mut tx_data = vec![0]; // Option<fee_recipient>
     tx_data.append(&mut do_rlp(&tx, &wallet));
 
@@ -341,7 +360,7 @@ async fn evm_account_lock(
 
         let client_zero_gas = client(zero_gas);
         // deploy contract
-        let address = client_zero_gas.deploy(&contract, &wallet1, None, tx_type, zero_gas).await;
+        let address = client_zero_gas.deploy(&contract, &wallet1, None, tx_type).await;
 
         // preparing the method calls
         let abi = abi(&format!("{}{}.abi", CONTRACTS, contract));
@@ -350,7 +369,7 @@ async fn evm_account_lock(
             let nonce = client_zero_gas.transaction_count(wallet.address()).unwrap().as_u64();
             let mut rlp = vec![];
             for i in 0..count {
-                let tx = do_tx_base(&client_zero_gas, Some(address), method_id(&abi, method), &wallet, 0, tx_type, nonce + i);
+                let tx = do_tx_base(&client_zero_gas, Some(address), method_id(&abi, method), &wallet, 0.into(), tx_type, nonce + i);
                 rlp.push(do_rlp(&tx, &wallet).to_vec()) ;
             }
             rlp
@@ -361,7 +380,6 @@ async fn evm_account_lock(
 
         let client1 = client_zero_gas.clone();
         let client2 = client_zero_gas.clone();
-
 
         let tx1_jh = tokio::spawn(
             async move {
@@ -382,4 +400,123 @@ async fn evm_account_lock(
         tx1_res.map_err(|e| println!("{:?}", e)).unwrap();
         tx2_res.map_err(|e| println!("{:?}", e)).unwrap();
     }).await;
+}
+
+#[rstest(
+    contract,
+    method,
+    type_,
+    amount,
+    address_predeployed_contract,
+    zero_gas,
+    case::withdraw_1_sol(
+        "Caller",
+        "call1SOLWithdrawal", // test-account-keypair.json  | base58 --decode | xxd -ps
+        "bytes32",
+        1_000_000_000_000_000_000u64, // 1 SOL
+        WITHDRAWAL_ADDRESS,
+        false
+    ),
+)]
+#[serial_test::serial]
+async fn withdraw_from_the_contract(
+    contract: String,
+    method: &str,
+    type_: &str,
+    amount: u64,
+    address_predeployed_contract: &str,
+    zero_gas: bool,
+) {
+    let withdraw_key = test_account();
+    let client = client(zero_gas);
+    let sender = wallet();
+    let contract_balance = U256::exp10(18);
+    let address_predeployed = Address::from_str(address_predeployed_contract).unwrap();
+    
+    client.airdrop(sender.address(), U256::exp10(19)).await;
+    let fee_balance_before = client.sum_fee_balances(zero_gas).await; // important: after airdrop
+    let sender_balance_before = client.get_balance(sender.address()).unwrap();
+    
+    // deploy contract
+    let address = client.deploy(&contract, &sender, None, 2).await;
+    
+    // balances before
+    let custom_contract_balance_before = client.get_balance(address).unwrap();
+    let solana_balance_before = client.solana_balance(&withdraw_key).await.unwrap_or_default();
+    let balance_predeployed_before = client.get_balance(address_predeployed).unwrap();
+
+    client.transfer(&sender, &address, contract_balance).await;
+    let custom_contract_balance_after = client.get_balance(address).unwrap();
+    assert_eq!(custom_contract_balance_after - custom_contract_balance_before, contract_balance);
+    
+    // withdrawal
+    let hex = hex::encode(withdraw_key.to_bytes());
+    let full_method: &str = &format!("{}({} 0x{})", method, type_, hex);
+    client.method_call(&contract, &address, full_method, &sender, 0.into(), 2).await;
+    
+    // verification
+    let balance_predeployed_after = client.get_balance(address_predeployed).unwrap();
+    let solana_balance_after = client.solana_balance(&withdraw_key).await.unwrap();
+    let custom_contract_balance_after = client.get_balance(address).unwrap();
+    let fee_balance_after = client.sum_fee_balances(zero_gas).await;
+    let sender_balance_after = client.get_balance(sender.address()).unwrap();
+    let fee_diff = fee_balance_after - fee_balance_before;
+    
+    // check the balances
+    assert_eq!(sender_balance_after, sender_balance_before - fee_diff - contract_balance); // we used contract_balance to transfer to the contract
+    assert_eq!(balance_predeployed_after, balance_predeployed_before + amount);
+    assert_eq!(solana_balance_after, solana_balance_before + amount  / 1_000_000_000 ); // Divide by 10^9 to convert wei to lamports
+    assert_eq!(custom_contract_balance_after, custom_contract_balance_before);
+}
+
+#[rstest(
+    methods,
+    amount,
+    address_predeployed_contract,
+    zero_gas,
+    case::withdraw_1_sol(
+        vec![
+            "withdrawal(bytes32)",
+        ],
+        1_000_000_000_000_000_000u64, // 1 SOL
+        WITHDRAWAL_ADDRESS,
+        false
+    ),
+)]
+#[serial_test::serial]
+async fn withdraw_raw(
+    methods: Vec<&str>,
+    amount: u64,
+    address_predeployed_contract: &str,
+    zero_gas: bool,
+) {
+    let client = client(zero_gas);
+    let withdraw_key = test_account();
+    let solana_address_bytes32 = withdraw_key.to_bytes();
+    let sender = wallet();
+    let address_predeployed = Address::from_str(address_predeployed_contract).unwrap();
+    client.airdrop(sender.address(), U256::exp10(19)).await;
+    let fee_balance_before = client.sum_fee_balances(zero_gas).await;
+
+    // balances before
+    let sender_balance_before = client.get_balance(sender.address()).unwrap();
+    let solana_balance_before = client.solana_balance(&withdraw_key).await.unwrap_or_default();
+    let balance_predeployed_before = client.get_balance(address_predeployed).unwrap();
+ 
+    // withdrawal
+    for method in methods {
+        client.raw_call(&address_predeployed, method, &sender, U256::from(amount), 2, solana_address_bytes32).await
+    }
+
+    // verification
+    let balance_predeployed_after = client.get_balance(address_predeployed).unwrap();
+    let solana_balance_after = client.solana_balance(&withdraw_key).await.unwrap();
+    let sender_balance_after = client.get_balance(sender.address()).unwrap();
+    let fee_balance_after = client.sum_fee_balances(zero_gas).await;
+    let fee_diff = fee_balance_after - fee_balance_before;
+
+    // check the balances
+    assert_eq!(balance_predeployed_after, balance_predeployed_before + amount);
+    assert_eq!(solana_balance_after, solana_balance_before + amount  / 1_000_000_000 ); // Divide by 10^9 to convert wei to lamports
+    assert_eq!(sender_balance_after, sender_balance_before - amount - fee_diff); 
 }

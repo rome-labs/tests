@@ -1,6 +1,5 @@
 services:
   solana:
-    container_name: solana
     image: romelabs/rome-evm:${ROME_EVM_TAG:-latest}
     environment:
       RUST_LOG: solana_runtime::system_instruction_processor=debug,solana_runtime::message_processor=debug,solana_bpf_loader=debug,solana_rbpf=debug
@@ -26,8 +25,8 @@ services:
       start_period: 10s
 
   reg_rollup:
-    container_name: reg_rollup
     image: romelabs/rome-apps:${ROME_APPS_TAG:-latest}
+
     environment:
       SERVICE_NAME: cli.sh
       CHAIN_ID: 1001
@@ -44,15 +43,15 @@ services:
       - net
 
   deposit:
-    container_name: deposit
     image: romelabs/rome-apps:${ROME_APPS_TAG:-latest}
+
     environment:
       SERVICE_NAME: cli.sh
       CHAIN_ID: 1001
       SOLANA_RPC: http://solana:8899
       COMMAND: deposit
       ADDRESS: 0x768b73EE6CA9e0A1bc32868CA65dB89E44696DD8
-      BALANCE: '1000000000000000000000000'
+      BALANCE: '400000000000000000000000000'
       PROGRAM_ID: CmobH2vR6aUtQ8x4xd1LYNiH6k2G7PFT5StTgWqvy2VU
       KEYPAIR: /opt/keys/test-account-keypair.json
     volumes:
@@ -64,16 +63,16 @@ services:
       - net
 
   geth:
-    container_name: geth
     image: romelabs/rollup-op-geth:${GETH_TAG:-latest}
     hostname: geth
     environment:
       CHAIN_ID: '1001'
       GENESIS_ADDRESS: 0x768b73EE6CA9e0A1bc32868CA65dB89E44696DD8
-      GENESIS_BALANCE: '1000000000000000000000000'
+      GENESIS_BALANCE: '0'
       GENESIS_PRIVATE_KEY: 3f37802575d0840281551d5619256a84762e8236325537e8818730082645be65
       JWT_SECRET: a535c9f4f9df8e00cd6a15a7baa74bb92ca47ebdf59b6f3f2d8a8324b6c1767c
       ROME_GASOMETER_URL: http://proxy:9090
+      OTLP_RECEIVER_URL: ${OTLP_RECEIVER_URL:-otc:4317}
     ports:
       - 443:443
       - 8080:80
@@ -96,14 +95,16 @@ services:
       start_period: 10s
 
   postgres:
-    container_name: postgres
     image: postgres:15
     command: postgres -c 'max_connections=1000'
     environment:
-      POSTGRES_DB: test_rollup
+      POSTGRES_DB: postgres
       POSTGRES_USER: hercules
       POSTGRES_PASSWORD: qwerty123
     hostname: postgres
+    volumes:
+      - ./init-multiple-dbs.sql:/docker-entrypoint-initdb.d/init-multiple-dbs.sql:ro
+
     healthcheck:
       test: [ CMD-SHELL, "pg_isready -h postgres -p 5432" ]
       interval: 3s
@@ -116,8 +117,8 @@ services:
       - net
 
   apply_migrations:
-    container_name: apply_migrations
     image: romelabs/rome-apps:${ROME_APPS_TAG:-latest}
+
     environment:
       SERVICE_NAME: apply_migrations
       DATABASE_URL: "postgres://hercules:qwerty123@postgres/test_rollup"
@@ -128,12 +129,15 @@ services:
         condition: service_healthy
 
   hercules:
-    container_name: hercules
     image: romelabs/rome-apps:${ROME_APPS_TAG:-latest}
+
     hostname: hercules
     environment:
       SERVICE_NAME: hercules
       HERCULES_CONFIG: /opt/cfg/hercules-config.yml
+      OTLP_RECEIVER_URL: ${OTLP_RECEIVER_URL:-http://otc:4317}
+      ENABLE_OTEL_METRICS: ${ENABLE_OTEL_METRICS:-false}
+      ENABLE_OTEL_TRACING: ${ENABLE_OTEL_TRACING:-false}
     volumes:
       - ./cfg:/opt/cfg
     ports:
@@ -149,14 +153,20 @@ services:
         condition: service_completed_successfully
       geth:
         condition: service_healthy
+      relayer:
+        condition: service_healthy
+      otc:
+        condition: service_started
 
   rhea:
-    container_name: rhea
     image: romelabs/rome-apps:${ROME_APPS_TAG:-latest}
     hostname: rhea
     environment:
       SERVICE_NAME: rhea
       RHEA_CONFIG: ${RHEA_CONFIG:-/opt/cfg/rhea-config.yml}
+      OTLP_RECEIVER_URL: ${OTLP_RECEIVER_URL:-http://otc:4317}
+      ENABLE_OTEL_METRICS: ${ENABLE_OTEL_METRICS:-false}
+      ENABLE_OTEL_TRACING: ${ENABLE_OTEL_TRACING:-false}
     volumes:
       - ./keys:/opt/keys
       - ./cfg:/opt/cfg
@@ -169,14 +179,18 @@ services:
         condition: service_started
       geth:
         condition: service_healthy
+      otc:
+        condition: service_started
         
   proxy:
-    container_name: proxy
     image: romelabs/rome-apps:${ROME_APPS_TAG:-latest}
     hostname: proxy
     environment:
       SERVICE_NAME: proxy
       PROXY_CONFIG: ${PROXY_CONFIG:-/opt/cfg/proxy-config.yml}
+      OTLP_RECEIVER_URL: ${OTLP_RECEIVER_URL:-http://otc:4317}
+      ENABLE_OTEL_METRICS: ${ENABLE_OTEL_METRICS:-false}
+      ENABLE_OTEL_TRACING: ${ENABLE_OTEL_TRACING:-false}
     volumes:
       - ./keys:/opt/keys
       - ./cfg:/opt/cfg
@@ -189,6 +203,8 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      otc:
+        condition: service_started
     healthcheck:
       test: [
         CMD-SHELL,
@@ -200,7 +216,6 @@ services:
       start_period: 10s
 
   oz:
-    container_name: oz
     image: romelabs/oz:${REF_NAME:-latest}
     command: /bin/bash
     stdin_open: true # docker run -i
@@ -212,7 +227,7 @@ services:
       GENESIS_PRIVATE_KEY: 3f37802575d0840281551d5619256a84762e8236325537e8818730082645be65
       TASKS_NUMBER: ${TASKS_NUMBER:-16}
       PROXY_URL: ${PROXY_URL:-http://proxy:9090}
-      NETWORK_ID: 1001
+      NETWORK_ID: ${NETWORK_ID:-1001}
       HARDHAT_ACCOUNTS_NUMBER: 10
     depends_on:
       proxy:
@@ -222,7 +237,6 @@ services:
 
 
   airdrop_oz:
-    container_name: airdrop_oz
     image: romelabs/oz:${REF_NAME:-latest}
     command: >
       /bin/sh -c
@@ -235,7 +249,7 @@ services:
       done;
 
       /opt/bin/solana -u http://solana:8899 -v airdrop 1000 /opt/keys/upgrade-authority-keypair.json; 
-      /opt/bin/solana -u http://solana:8899 -v airdrop 1000 /opt/keys/test-account-keypair.json; 
+      /opt/bin/solana -u http://solana:8899 -v airdrop 410000000 /opt/keys/test-account-keypair.json; 
       "
     volumes:
       - ./keys:/opt/keys
@@ -246,7 +260,6 @@ services:
       - net
 
   faucet:
-    container_name: faucet
     image: romelabs/rome-faucet:${FAUCET_TAG:-latest}
     command: >
       /bin/sh -c
@@ -268,5 +281,46 @@ services:
     depends_on:
       rhea:
         condition: service_started
+
+  relayer:
+    image: romelabs/rome-relayer:${ROME_RELAYER_TAG:-latest}
+    hostname: relayer
+    environment:
+      DATABASE_URL: "postgres://hercules:qwerty123@postgres/test_relayer"
+    volumes:
+      - ./cfg/relayer-config.yml:/app/config.yml
+    command: ["relayer", "full"]
+    ports:
+      - 9070:9070
+    networks:
+      - net
+    healthcheck:
+      test: ["CMD-SHELL", "relayer-client --url grpc://0.0.0.0:9070 slot"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      solana:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  otc:
+    image: otel/opentelemetry-collector-contrib:0.89.0
+    volumes:
+      - ./obs_config/otel-collector-config.yaml:/etc/otelcol/config.yaml
+    command: --config /etc/otelcol/config.yaml
+    ports:
+      - 4317:4317 
+      - 4318:4318
+    networks:
+      - net
+  
+  jaeger:
+    networks:
+      - net
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686"
 networks:
   net:

@@ -11,6 +11,7 @@ jobs:
       # Set the Branch/Ref of the github repositories to be used for building the image
       ROME_SDK_REF_NAME: "main"
       ROME_EVM_REF_NAME: "main"
+      ROME_RELAYER_REF_NAME: "main"
 
       # Set the Branch/Ref of the github repository to be used for running tests scripts from
       ROME_TESTS_REF_NAME: ${{github.ref_name}} # If updating this, also update the uses in the job call-reusable-tests at bottom of this file
@@ -18,17 +19,19 @@ jobs:
       # Set the versions of the various images to run tests against
       EVM_VERSION: "main"
       APPS_VERSION: "main"
+      RELAYER_VERSION: "main"
 
       GETH_VERSION: "main"
       UNISWAP_VERSION: "latest"
       OPENZEPPELIN_VERSION: "latest"
 
-      # Set the tests list to run 
-      TESTS_LIST: "tests,uniswap_proxy,uniswap_geth"
+      # Set the tests list to run (open_zeppelin_op_geth, open_zeppelin_proxy, load-test) 
+      TESTS_LIST: "evm,spl,state_comparison,state_comparison_2,uniswap_op_geth,uniswap_proxy"
 
     outputs:
       docker_image_tags: ${{ steps.prepare_docker_image_tags.outputs.docker_image_tags }}
-      tests_list: ${{ steps.prepare_tests_list.outputs.tests_list }}
+      tests_rebuild: ${{ steps.prepare_tests_rebuild.outputs.tests_rebuild }}
+      tests_no_rebuild: ${{ steps.prepare_tests_no_rebuild.outputs.tests_no_rebuild }}
       rome_tests_ref_name: ${{ steps.set_rome_tests_ref.outputs.rome_tests_ref_name }}
       rome_evm_ref_name: ${{ steps.set_rome_tests_ref.outputs.rome_evm_ref_name }}
       rome_sdk_ref_name: ${{ steps.set_rome_tests_ref.outputs.rome_sdk_ref_name }}
@@ -40,25 +43,33 @@ jobs:
           # Use environment variables if available, otherwise default to 'latest'
           evm_ver="${{ env.EVM_VERSION || 'latest' }}"
           apps_ver="${{ env.APPS_VERSION || 'latest' }}"
+          relayer_ver="${{ env.RELAYER_VERSION || 'latest' }}"
           geth_ver="${{ env.GETH_VERSION || 'latest' }}"
           tests_ver="${{ env.ROME_TESTS_REF_NAME || 'latest' }}"
           uniswap_ver="${{ env.UNISWAP_VERSION || 'latest' }}"
           openzeppelin_ver="${{ env.OPENZEPPELIN_VERSION || 'latest' }}"
           
           # Create JSON object for docker_image_tags using environment variables
-          docker_image_tags=$(echo "{\"evm\": \"$evm_ver\", \"apps\": \"$apps_ver\", \"geth\": \"$geth_ver\", \"tests\": \"$tests_ver\", \"uniswap\": \"$uniswap_ver\", \"openzeppelin\": \"$openzeppelin_ver\"}")
+          docker_image_tags=$(echo "{\"evm\": \"$evm_ver\", \"apps\": \"$apps_ver\", \"relayer\": \"$relayer_ver\", \"geth\": \"$geth_ver\", \"tests\": \"$tests_ver\", \"uniswap\": \"$uniswap_ver\", \"openzeppelin\": \"$openzeppelin_ver\"}")
           
           echo "Docker image tags: $docker_image_tags"
           echo "docker_image_tags=$docker_image_tags" >> $GITHUB_OUTPUT
 
-      - name: 'Prepare Tests List Input'
-        id: prepare_tests_list
+      - name: 'Prepare Tests List Input (requires build)'
+        id: prepare_tests_rebuild
         run: |
-          # Use TESTS_LIST environment variable or fallback to 'tests'
-          tests_list="${{ env.TESTS_LIST || 'tests' }}"
-          
-          echo "Tests list: $tests_list"
-          echo "tests_list=$tests_list" >> $GITHUB_OUTPUT
+          # Use TESTS_LIST environment variable or fallback to 'evm'
+          tests_list1=$(echo "${{ env.TESTS_LIST }}" | tr ',' '\n' | grep -v 'uniswap' | paste -sd, -)
+          echo "tests_rebuild=$tests_list1" >> $GITHUB_OUTPUT
+          echo "Tests list requires build: $tests_list1"
+      
+      - name: 'Prepare Tests List Input (just test)'
+        id: prepare_tests_no_rebuild
+        run: |
+          # Use TESTS_LIST environment variable or fallback to 'evm'
+          tests_list2=$(echo "${{ env.TESTS_LIST }}" | tr ',' '\n' | grep 'uniswap' | paste -sd, -)
+          echo "tests_no_rebuild=$tests_list2" >> $GITHUB_OUTPUT
+          echo "Tests list just test: $tests_list2"    
       
       - name: 'Set REF NAME'
         id: set_rome_tests_ref
@@ -78,18 +89,48 @@ jobs:
       rome_sdk_ref_name: ${{ needs.prepare_env.outputs.rome_sdk_ref_name || 'main' }}
 
   call-reusable-tests:
-    name: "Test"
+    if: ${{ needs.prepare_env.outputs.tests_no_rebuild != '' }}
+    name: "Test - no build"
     uses: ./.github/workflows/reusable_wf_tests.yml
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-just-test
+      cancel-in-progress: true
+    needs: [prepare_env]
+    secrets: inherit
+    with:
+      docker_image_tags: ${{ needs.prepare_env.outputs.docker_image_tags }}
+      tests_list: ${{ needs.prepare_env.outputs.tests_no_rebuild }}
+      rome_tests_ref_name: ${{ needs.prepare_env.outputs.rome_tests_ref_name }}
+
+  call-reusable-tests-rebuild:
+    if: ${{ needs.prepare_env.outputs.tests_rebuild != '' }}
+    name: "Test - requires build"
+    uses: ./.github/workflows/reusable_wf_tests.yml
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-build-test
+      cancel-in-progress: true
     needs: [prepare_env, call-reusable-build]
     secrets: inherit
     with:
       docker_image_tags: ${{ needs.prepare_env.outputs.docker_image_tags }}
-      tests_list: ${{ needs.prepare_env.outputs.tests_list }}
+      tests_list: ${{ needs.prepare_env.outputs.tests_rebuild }}
       rome_tests_ref_name: ${{ needs.prepare_env.outputs.rome_tests_ref_name }}
+
+  collect-logs:
+    name: "Collect logs"
+    uses: ./.github/workflows/reusable_wf_collect_logs.yml
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-logs
+      cancel-in-progress: true
+    needs: [prepare_env, call-reusable-tests, call-reusable-tests-rebuild]
+    if: always()
+    with:
+      rome_tests_ref_name: ${{ needs.prepare_env.outputs.rome_tests_ref_name }}
+    secrets: inherit
 
   update-latest-tag:
     runs-on: ubuntu-latest
-    needs: [prepare_env, call-reusable-build, call-reusable-tests]
+    needs: [prepare_env, call-reusable-build, collect-logs]
     if: ${{needs.prepare_env.outputs.rome_tests_ref_name == 'main'}}
     steps:
       - name: 'Login to Docker Hub'
@@ -98,8 +139,11 @@ jobs:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
 
-      - name: 'Set latest tag'
+      - name: 'Set latest and latest_testnet tag'
         run: |
           docker pull romelabs/tests:${{ needs.prepare_env.outputs.rome_tests_ref_name }}
           docker tag romelabs/tests:${{ needs.prepare_env.outputs.rome_tests_ref_name }} romelabs/tests:latest
           docker push romelabs/tests:latest
+          docker pull romelabs/tests:${{ needs.prepare_env.outputs.rome_tests_ref_name }}_testnet
+          docker tag romelabs/tests:${{ needs.prepare_env.outputs.rome_tests_ref_name }}_testnet romelabs/tests:latest_testnet
+          docker push romelabs/tests:latest_testnet

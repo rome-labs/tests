@@ -1,0 +1,14 @@
+FROM rust:1.87.0-slim AS build
+
+ENV CARGO_HOME=/usr/local/cargo
+ENV CARGO_TARGET_DIR=/opt/tests/target
+
+RUN apt-get update -qq && apt-get install -qq -y \
+    protobuf-compiler pkg-config \
+    libssl-dev perl libpq-dev build-essential \
+    libudev-dev pkg-config curl && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/tests/
+
+CMD ["bash"]

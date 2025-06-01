@@ -6,7 +6,8 @@ solana:
   commitment: "confirmed"
 payers:
   - payer_keypair: "/opt/keys/proxy-sender.json"
-    number_holders: 32
+    fee_recipients:
+      - 0x5f5d351dB427d1131D8Dcd4F151185E6E6111907
 ethereum_storage:
   type: "pg_storage"
   connection:
@@ -14,3 +15,4 @@ ethereum_storage:
     max_connections: 16
 proxy_host: "0.0.0.0:9090"
 max_slot_history: 4096
+gas_price: 1000000000

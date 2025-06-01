@@ -7,7 +7,7 @@ on:
         type: string
         description: 'JSON object containing Docker image tags (e.g., {"evm": "latest", "apps": "latest", "geth": "latest", "tests": "latest", "uniswap": "latest"})'
         required: true
-        default: '{"evm": "latest", "apps": "latest", "geth": "latest", "tests": "latest", "uniswap": "latest"}'
+        default: '{"evm": "latest", "apps": "latest", "relayer": "latest", "geth": "latest", "tests": "latest", "uniswap": "latest"}'
       tests_list:
         type: string
         description: 'Comma-separated list of tests to run (e.g., tests,uniswap_op_geth,uniswap_proxy,load_test_proxy)'
@@ -18,27 +18,42 @@ on:
         description: 'Test repo branch name to use for running the tests'
         required: false
         default: 'main'
+  workflow_dispatch:
+    inputs:
+      docker_image_tags:
+        type: string
+        required: true
+      tests_list:
+        type: string
+        required: false
+        default: 'evm,spl,state_comparison,state_comparison_2,uniswap_proxy,uniswap_op_geth'
+      rome_tests_ref_name:
+        type: string
+        required: false
+        default: 'main'
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+# concurrency:
+#   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.job }}
+#   cancel-in-progress: true
 
 jobs:
   prepare:
     name: "Prepare matrix"
     runs-on: ubuntu-latest
     outputs:
-      test_matrix: ${{ steps.json.outputs.tests || '"["tests"]"' }}
+      test_matrix: ${{ steps.json.outputs.tests || '"["evm"]"' }}
     steps:
       - name: Build matrix
         uses: actions/github-script@v7
         id: json
         with:
+          # remove _bkp from testsList to unlock parallelism for uniswap: uniswap_proxy_bkp
+          # excluded uniswap set of tests (from arguments):  
           script: |
             let testsList = '${{ inputs.tests_list }}'.split(',').map(test => test.trim());
-            let arguments = ["UniswapV2ERC20", "UniswapV2Factory", "UniswapV2Pair"];
+            let arguments = ["UniswapV2Pair_1", "UniswapV2Pair_2", "UniswapV2Pair_3", "UniswapV2ERC20", "UniswapV2Factory"];
             let matrix = [];
 
             testsList.forEach(test => {
@@ -62,7 +77,6 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      # max-parallel: 3
       matrix:
         include: ${{ fromJson(needs.prepare.outputs.test_matrix) }}
     steps:
@@ -75,6 +89,7 @@ jobs:
           # Ensure fallback to latest for missing keys using jq's fallback operator (//)
           evm_ver=$(echo "$docker_image_tags" | jq -r '.evm // "latest"')
           apps_ver=$(echo "$docker_image_tags" | jq -r '.apps // "latest"')
+          relayer_ver=$(echo "$docker_image_tags" | jq -r '.relayer // "latest"')
           geth_ver=$(echo "$docker_image_tags" | jq -r '.geth // "latest"')
           tests_ver=$(echo "$docker_image_tags" | jq -r '.tests // "latest"')
           uniswap_ver=$(echo "$docker_image_tags" | jq -r '.uniswap // "latest"')
@@ -84,6 +99,7 @@ jobs:
           echo "ROME_EVM_TAG=$evm_ver" >> $GITHUB_ENV
           echo "GETH_TAG=$geth_ver" >> $GITHUB_ENV
           echo "ROME_APPS_TAG=$apps_ver" >> $GITHUB_ENV
+          echo "ROME_RELAYER_TAG=$relayer_ver" >> $GITHUB_ENV
           echo "RHEA_TAG=$apps_ver" >> $GITHUB_ENV
           echo "PROXY_TAG=$apps_ver" >> $GITHUB_ENV
           echo "CLI_TAG=$apps_ver" >> $GITHUB_ENV
@@ -132,71 +148,40 @@ jobs:
           else
             ./ci/scripts/${{ matrix.test }}.sh
           fi
-        
+
+      - name: Copy Logs for ${{ matrix.test }}
+        run: |
+          cd tests/ci/ 
+          LOGS_DIR="../records/docker-logs"
+          mkdir -p $LOGS_DIR
+          docker-compose ps -aq | xargs -I {} sh -c 'docker logs {} > ../records/docker-logs/$(docker inspect --format="{{.Name}}" {}).log 2>&1'
+          ls
+          ls -l ../records/docker-logs
+        if: always()
+
+      - name: Rename docker log folder
+        run: |
+            echo ">>> records folder content:"
+            ls -l tests/records/
+            echo ">>> docker-logs folder content:"
+            ls -l tests/records/docker-logs
+            mv tests/records/docker-logs tests/records/docker-logs-${{ matrix.test }}${{ matrix.argument }}
+            echo ">>> records folder content:"
+            ls -l tests/records/
+        if: always()
+
+      - name: Clear environment
+        if: always()
+        run: |
+          cd tests/ci/
+          docker-compose down > /dev/null
+          docker container prune -f
+
       - name: Upload logs for ${{ matrix.test }}
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-logs-${{ matrix.test }}${{ matrix.argument }}
-          path: tests/records/${{ matrix.test }}${{ matrix.argument }}.txt
-
-  collect-logs:
-    name: "Collect logs"
-    needs: run-tests
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: 'Checkout tests repository'
-        if: always()
-        uses: actions/checkout@v4
-        with:
-          repository: rome-labs/tests
-          path: tests
-          ref: ${{env.TESTS_REF_NAME || 'main'}}
-          token: ${{ secrets.GIT_ROLLUP_TOKEN }}
-
-      - name: Download all logs
-        if: always()
-        uses: actions/download-artifact@v4
-        with:
-          pattern: test-logs-*
-          path: tests/records/
-          merge-multiple: true
-
-      - name: List downloaded logs
-        if: always()
-        run: ls -l tests/records/
-
-      - name: 'Generate test reports'
-        if: always()
-        run: |
-          cd tests
-          chmod +x ./ci/scripts/generate_ctrf.sh
-          ./ci/scripts/generate_ctrf.sh
-          echo "Test resuls file content:"
-          ls -l
-          ls -l records
-        shell: bash
-
-      - name: 'Tar logs from records folder'
-        run: tar cvzf ./logs.tgz ./tests/records
-        if: always()
-
-      - name: Upload logs to GitHub
-        uses: actions/upload-artifact@master
-        with:
-          name: logs.tgz
-          path: ./logs.tgz
-        if: always()
-
-      - name: 'Parse tests results'
-        if: always()
-        run: |
-          sudo apt-get install jq
-          FAILED_TESTS=$(jq '.results.summary.failed' ./tests/records/test_results.json)
-          if [ "$FAILED_TESTS" -gt 0 ]; then
-            echo "Tests finished with errors: $FAILED_TESTS tests failed."
-            exit 1;
-          else
-           echo "All tests passed successfully."
-          fi
+          name: logs-for-${{ matrix.test }}${{ matrix.argument }}
+          path: |
+            tests/records/${{ matrix.test }}${{ matrix.argument }}.txt
+            tests/records/docker-logs-${{ matrix.test }}${{ matrix.argument }}

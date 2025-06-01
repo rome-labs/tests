@@ -23,15 +23,16 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.job }}
   cancel-in-progress: true  
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04-8core-32gb-300
     strategy:
       fail-fast: false
       matrix:
+#        rome_evm_ref_name: ["${{ inputs.rome_evm_ref_name || 'main' }}", "testnet"]
         rome_evm_ref_name: ["${{ inputs.rome_evm_ref_name || 'main' }}"]
     steps:
       - name: 'Prepare environment variables from input'
@@ -44,24 +45,24 @@ jobs:
           echo "ROME_SDK_REF_NAME=$rome_sdk_ref_name" >> $GITHUB_ENV
           echo "ROME_TESTS_REF_NAME=$rome_tests_ref_name" >> $GITHUB_ENV
 
-      - name: 'Set rome_evm_private_ref_name'
+      - name: 'Set ROME_BRANCH_NAME'
         run: |
           if [ "${{ matrix.rome_evm_ref_name }}" == "testnet" ]; then
-            echo "ROME_EVM_PRIVATE_REF_NAME=debug_testnet" >> $GITHUB_ENV
+            echo "ROME_BRANCH_NAME=testnet" >> $GITHUB_ENV
           else
-            echo "ROME_EVM_PRIVATE_REF_NAME=${{ matrix.rome_evm_ref_name }}" >> $GITHUB_ENV
+            echo "ROME_BRANCH_NAME=${{ matrix.rome_evm_ref_name }}" >> $GITHUB_ENV
           fi
 
-      - name: 'Checkout rome-evm reposotory'
-        uses: actions/checkout@master
+      - name: 'Checkout rome-evm repository'
+        uses: actions/checkout@v4
         with:
           path: rome-evm
           repository: rome-labs/rome-evm
-          ref: ${{ env.ROME_EVM_PRIVATE_REF_NAME }}
+          ref: ${{ env.ROME_BRANCH_NAME }}
           token: ${{secrets.GIT_ROLLUP_TOKEN}}
       
-      - name: 'Checkout rome-sdk reposotory'
-        uses: actions/checkout@master
+      - name: 'Checkout rome-sdk repository'
+        uses: actions/checkout@v4
         with:
           repository: rome-labs/rome-sdk
           path: rome-sdk
@@ -69,6 +70,15 @@ jobs:
           ref: ${{env.ROME_SDK_REF_NAME}}
           token: ${{ secrets.GIT_ROLLUP_TOKEN }}
 
+      - name: 'Checkout rome-relayer repository'
+        uses: actions/checkout@v4
+        with:
+          repository: rome-labs/rome-relayer
+          path: rome-relayer
+          submodules: recursive
+          ref: ${{env.ROME_RELAYER_REF_NAME}}
+          token: ${{ secrets.GIT_ROLLUP_TOKEN }}
+  
       - name: 'Checkout tests repository'
         uses: actions/checkout@v4
         with:
@@ -76,24 +86,12 @@ jobs:
           path: tests
           ref: ${{env.ROME_TESTS_REF_NAME}}
           token: ${{ secrets.GIT_ROLLUP_TOKEN }}
-  
+          
       - name: 'Login to Docker Hub'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: Cache Docker layers
-        uses: actions/cache@v3
-        with:
-          path: /tmp/.buildx-cache
-          key: buildx-${{ github.ref_name }}
-          restore-keys: |
-            buildx-${{ github.ref_name }}-
-            buildx-master-
 
       - name: 'Set docker image tag'
         run: |
@@ -103,13 +101,82 @@ jobs:
             echo "DOCKER_TAG=${{env.ROME_TESTS_REF_NAME}}" >> $GITHUB_ENV
           fi
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v4
+      - name: Cache Rust
+        uses: actions/cache@v4
         with:
-          context: .
-          push: true
-          file: tests/ci/Dockerfile
-          tags: romelabs/tests:${{env.DOCKER_TAG}}
-          labels: romelabs/tests:${{env.DOCKER_TAG}}
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache
+          path: |
+            ~/.cargo
+            tests/target
+          key: rust-cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: rust-cargo-${{ runner.os }}-
+      
+      - name: Build and push tests-builder image (on main)
+        if: github.ref_name == 'main'
+        run: |
+          docker build -t tests-builder -f tests/ci/Dockerfile.dev tests
+          docker tag tests-builder romelabs/tests-builder:latest
+          docker push romelabs/tests-builder:latest
+
+      - name: Pull or fallback to local build of tests-builder image (not on main)
+        if: github.ref_name != 'main'
+        run: |
+          if docker pull romelabs/tests-builder:latest; then
+            echo "Pulled prebuilt image"
+            docker tag romelabs/tests-builder:latest tests-builder
+          else
+            docker build -t tests-builder -f tests/ci/Dockerfile.dev tests
+            docker tag tests-builder romelabs/tests-builder:latest
+          fi
+
+      - name: Run build and extract binaries
+        run: |
+          container_id=$(docker run -d \
+            -v ${{ github.workspace }}/tests:/opt/tests \
+            -v ${{ github.workspace }}/rome-sdk:/opt/rome-sdk \
+            -v ${{ github.workspace }}/rome-relayer:/opt/rome-relayer \
+            -v ${{ github.workspace }}/rome-evm:/opt/rome-evm \
+            -v ${{ github.workspace }}/tests/target:/opt/tests/target \
+            -v ~/.cargo:/usr/local/cargo \
+            -e CARGO_HOME=/usr/local/cargo \
+            tests-builder \
+            sleep infinity)
+
+          docker exec $container_id bash -c "
+            cd /opt/tests &&
+
+            # run builds
+            cargo test --test evm --no-run --release && \
+            cargo test --test spl --no-run --release && \
+            cargo test --test state_comparison --no-run --release && \
+            cargo test --test state_comparison_2 --no-run --release && \
+
+            mkdir -p /opt/bin && \
+            # extract builds
+            for bin in spl evm state_comparison state_comparison_2; do \
+              f=\$(find /opt/tests/target/release/deps -maxdepth 1 -type f -executable -name \"\$bin-*\" | head -n1) && \
+              cp \"\$f\" \"/opt/bin/\$bin\"; \
+            done &&
+
+            # install spl-token for tests
+            cargo install spl-token-cli && \
+            cp /usr/local/cargo/bin/spl-token /opt/bin/spl-token \
+          "
+
+          mkdir -p ${{ github.workspace }}/tests/bin
+          docker cp $container_id:/opt/bin/. ${{ github.workspace }}/tests/bin/
+          docker rm -f $container_id
+          ls -l ${{ github.workspace }}/tests/bin/
+
+      - name: Build runtime image
+        run: |
+          docker build \
+            -t romelabs/tests:${{env.DOCKER_TAG}} \
+            -f tests/ci/Dockerfile.runtime .
+
+      - name: Push image
+        run: docker push romelabs/tests:${{env.DOCKER_TAG}}
+
+      - name: Fix permissions
+        run: |
+          sudo chown -R $USER:$USER ~/.cargo
+          sudo chown -R $USER:$USER ${{ github.workspace }}/tests

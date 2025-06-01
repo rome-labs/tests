@@ -22,7 +22,8 @@ fi
 echo "PRINTENV SH:"
 printenv EXTENDED_LOGS
 cd /opt/bin
-if [ "$TEST_NAME" == "state_comparison" ] || [ "$TEST_NAME" == "evm" ]; then
+
+if [ "$TEST_NAME" == "state_comparison" ] || [ "$TEST_NAME" == "evm" ] || [ "$TEST_NAME" == "spl" ]; then
   echo "1. Running $TEST_NAME $EXTENDED_LOGS $CI_ARG --test-threads=1 "
   ./$TEST_NAME $EXTENDED_LOGS $CI_ARG --test-threads=1 
 else

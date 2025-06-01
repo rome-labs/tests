@@ -20,7 +20,6 @@ async fn oz (url: &str, tasks: usize, chain_id: u64, hh_acc_number: usize) {
              tasks, hh_acc_number, chain_id, url);
 
     let files = load_tests();
-
     let genesis_private_key = env::var("GENESIS_PRIVATE_KEY").unwrap();
 
     let private_keys = create_private_keys(files.len(), hh_acc_number);

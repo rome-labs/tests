@@ -1,0 +1,34 @@
+# syntax=docker/dockerfile:1.4
+
+# -------- Stage: Solidity Compilation (multiple versions) --------
+FROM ethereum/solc:0.8.28 AS solidity
+FROM ethereum/solc:0.5.16 AS solidity_5_16
+
+FROM romelabs/rome-ubuntu:24.04 AS contracts
+COPY tests/solidity/ /opt/
+COPY tests/solidity/spl/ /opt/
+
+COPY --from=solidity /usr/bin/solc /usr/bin/solc
+WORKDIR /opt/
+RUN solc --optimize --optimize-runs 200 --output-dir . --bin --abi *.sol && \
+    find . -name '*.bin' -exec sh -c 'for f; do xxd -r -p "$f" > "${f}ary"; done' sh {} +
+
+COPY --from=solidity_5_16 /usr/bin/solc /usr/bin/solc
+WORKDIR /opt/uniswap
+RUN solc --optimize --optimize-runs 200 --output-dir . --bin --abi *.sol && \
+    find . -name '*.bin' -exec sh -c 'for f; do xxd -r -p "$f" > "${f}ary"; done' sh {} +
+
+# -------- Stage --------
+FROM anzaxyz/agave:v2.2.14 AS solana
+FROM romelabs/rome-ubuntu:24.04 AS runtime
+
+COPY tests/bin/ /opt/bin/
+COPY tests/ci/ /opt/ci/
+COPY --from=contracts /opt/ /opt/solidity/
+COPY --from=solana /usr/bin/solana /opt/bin/
+COPY --from=solana /usr/bin/solana-keygen /opt/bin/
+RUN chmod +x /opt/bin/*
+RUN echo "Inside /opt/bin:" && find /opt/bin -type f -exec ls -lh {} \;
+
+
+ENTRYPOINT ["/opt/ci/start_tests.sh"]

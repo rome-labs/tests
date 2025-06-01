@@ -1,0 +1,12 @@
+addr: "[::]:9070"
+start_slot: 2
+storage:
+  # pg_url: set in .env; override this if you want to use a different database
+indexer:
+  concurrency: 32
+  program_id: "CmobH2vR6aUtQ8x4xd1LYNiH6k2G7PFT5StTgWqvy2VU"
+multiplexer:
+  providers:
+    - "http://solana:8899"
+  max_retries: 100
+  retry_delay_ms: 400

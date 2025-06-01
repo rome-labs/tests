@@ -29,7 +29,7 @@ pub fn do_tx(
     to: Option<Address>,
     data: Vec<u8>,
     wallet: &Wallet<SigningKey>,
-    value: u64,
+    value: U256,
     tx_type: u8,
 ) -> TypedTransaction {
     let nonce = client.transaction_count(wallet.address()).unwrap().as_u64();
@@ -42,12 +42,14 @@ pub fn do_tx_base(
     to: Option<Address>,
     data: Vec<u8>,
     wallet: &Wallet<SigningKey>,
-    value: u64,
+    value: U256,
     tx_type: u8,
     nonce: u64,
 ) -> TypedTransaction {
     println!("nonce: {}", nonce);
 
+    let gas_price = client.gas_price().unwrap();
+    println!("GAS PRICE {}", gas_price);
     match tx_type {
         0 => {
             let mut legacy = TransactionRequest {
@@ -55,8 +57,8 @@ pub fn do_tx_base(
                 data: Some(data.into()),
                 nonce: Some(nonce.into()),
                 chain_id: Some(client.chain_id().into()),
-                gas_price: Some(1.into()),
-                value: Some(value.into()),
+                gas_price: Some(gas_price),
+                value: Some(value),
                 ..Default::default()
             };
             legacy.from = Some(wallet.address());
@@ -69,9 +71,9 @@ pub fn do_tx_base(
                 data: Some(data.into()),
                 nonce: Some(nonce.into()),
                 chain_id: Some(client.chain_id().into()),
-                value: Some(value.into()),
-                max_priority_fee_per_gas: Some(1.into()), // TODO: do not use it
-                max_fee_per_gas: Some(1.into()),
+                value: Some(value),
+                max_priority_fee_per_gas: Some(gas_price), // TODO: do not use it
+                max_fee_per_gas: Some(gas_price),
                 ..Default::default()
             };
             let mut legacy: TransactionRequest = eip1559.clone().into();
@@ -124,7 +126,13 @@ pub fn method_id(abi: &Abi, method: &str) -> Vec<u8> {
                 let val = arg_split[2].to_string();
                 Value::encode(&[Value::String(val)])
             },
-            _ => unimplemented!(),
+            "bytes32" => {
+                let hex = arg_split[2].trim_start_matches("0x");
+                let bytes = hex::decode(hex).expect("Invalid hex");
+                assert_eq!(bytes.len(), 32, "Expected 32 bytes");
+                Value::encode(&[Value::FixedBytes(bytes)])
+            },
+            _ => unimplemented!("Unsupported type {}", arg_split[1]),
         }
     } else {
         vec![]

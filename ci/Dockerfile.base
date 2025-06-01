@@ -1,0 +1,7 @@
+# to build images for dockerfiles romelabs/rome-ubuntu:24.04
+FROM ubuntu:24.04
+
+RUN apt-get update -qq && apt-get install -y -qq \
+    xxd curl \
+    openssl libpq-dev ca-certificates \
+    && rm -rf /var/lib/apt/lists/*

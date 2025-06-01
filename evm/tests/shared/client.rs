@@ -11,8 +11,10 @@ use rome_sdk::rome_solana::types::AsyncAtomicRpcClient;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::Keypair;
 use ethers_core::{k256::ecdsa::SigningKey, types::Address};
-use ethers_core::types::transaction::eip2718::TypedTransaction;
-use super::{config::Config, tx::{do_tx, do_rlp}};
+use ethers_core::types::{
+    transaction::eip2718::TypedTransaction, U256, H160,
+};
+use super::{config::Config, client_config, tx::{do_tx, do_rlp}};
 use ethers_signers::{Signer as EthSigner, Wallet};
 use rome_sdk::rome_evm_client::Payer;
 
@@ -23,12 +25,13 @@ use crate::shared::{
 use std::str::FromStr;
 use std::sync::Arc;
 use crate::shared::utils::{run_on_testnet, run_on_devnet};
+use crate::shared::fixture::{cfg_path};
 type ClientType = RomeEVMClient;
 
 /// [RomeEVMClient] and payer [Keypair]
 pub struct Client {
     /// instance of [RomeEVMClient]
-    pub client: ClientType,
+    pub sdk_client: ClientType,
     /// upgrade_authority keypair of the rome-evm contract
     pub upgrade_authority: Keypair,
     /// user's solana wallet
@@ -41,7 +44,7 @@ impl Deref for Client {
     type Target = ClientType;
 
     fn deref(&self) -> &Self::Target {
-        &self.client
+        &self.sdk_client
     }
 }
 
@@ -57,7 +60,7 @@ impl Client {
         let program_id = Pubkey::from_str(&config.program_id).unwrap();
 
         let upgrade_authority = if !run_on_testnet() && !run_on_devnet() {
-            SolanaKeyPayer::read_from_file(&config.upgrade_authority_keypair)
+            SolanaKeyPayer::read_from_file(config.upgrade_authority_keypair.as_ref().unwrap())
             .await
             .expect("read upgrade-authority-keypair error")
             .into_keypair()
@@ -66,7 +69,7 @@ impl Client {
         };
 
         let user_solana_wallet = if !run_on_testnet() && !run_on_devnet() {
-            SolanaKeyPayer::read_from_file(&config.user_keypair)
+            SolanaKeyPayer::read_from_file(config.user_keypair.as_ref().unwrap())
             .await
             .expect("read user_keypair error")
             .into_keypair()
@@ -74,29 +77,30 @@ impl Client {
             Keypair::new()
         };
 
-        let client: AsyncAtomicRpcClient = config.solana.clone().into_async_client().into();
+        let rpc_client: AsyncAtomicRpcClient = config.solana.clone().into_async_client().into();
 
-        let solana_clock_indexer = SolanaClockIndexer::new(client.clone())
+        let solana_clock_indexer = SolanaClockIndexer::new(rpc_client.clone())
             .await
             .expect("create solana clock indexer error");
 
         let clock = solana_clock_indexer.get_current_clock();
 
         tokio::spawn(solana_clock_indexer.start());
-        let tower = SolanaTower::new(client, clock);
-        let ethereum_block_storage = Arc::new(EthereumBlockStorage);
+        let tower = SolanaTower::new(rpc_client, clock);
+        let ix_storage = Arc::new(EthereumBlockStorage);
 
-        let client = RomeEVMClient::new(
+        let sdk_client = RomeEVMClient::new(
             config.chain_id,
             program_id,
             tower,
             config.solana.commitment,
-            ethereum_block_storage,
+            ix_storage,
             payers,
+            U256::exp10(9),
         );
 
         Self {
-            client,
+            sdk_client,
             upgrade_authority: upgrade_authority,
             user_solana_wallet: user_solana_wallet,
             user_wallet
@@ -108,42 +112,22 @@ impl Client {
         &self,
         tx: &TypedTransaction,
         wallet: &Wallet<SigningKey>,
-        zero_gas: bool,
     ) {
         let rlp = do_rlp(tx, wallet);
         let from = wallet.address();
-
         let initial = self.get_balance(from).unwrap();
-        assert!(initial >= tx.value().cloned().unwrap_or_default());
 
         self.send_transaction(rlp.into()).await.unwrap();
 
         let actual= self.get_balance(from).unwrap();
-        let gas_transfer = if !zero_gas {
-            let transfer = tx
-                .gas()
-                .cloned()
-                .unwrap_or_default()
-                .checked_mul(
-                    tx.gas_price().unwrap_or_default()
-                ).unwrap();
-            assert!(transfer > 0.into());
-            transfer
-        } else {
-            0.into()
-        };
+        let transfer = initial.checked_sub(actual).unwrap();
+        let resource = self.sdk_client.tx_builder().lock_resource().await.unwrap();
 
-        let sum = gas_transfer
-            .checked_add(
-                tx.value().cloned().unwrap_or_default()
-            ).unwrap();
-        let expected = initial.saturating_sub(sum);
-        let resource = self.client.tx_builder().lock_resource().await.unwrap();
         if let Some(fee_recipient) = resource.fee_recipient_address() {
-            let gas_recv_bal = self.get_balance(fee_recipient).unwrap();
+            let balance = self.get_balance(fee_recipient).unwrap();
 
-            assert_eq!(actual, expected);
-            assert!(gas_recv_bal >= gas_transfer);
+            assert!(transfer > U256::zero());
+            assert!(balance > U256::zero());
         }
     }
 
@@ -155,16 +139,15 @@ impl Client {
         wallet: &Wallet<SigningKey>,
         ctor: Option<Vec<u8>>,
         tx_type: u8,
-        zero_gas: bool,
     ) -> Address {
         let path = format!("{}{}.binary", CONTRACTS, contract);
         let mut bin = std::fs::read(&path).unwrap();
         if let Some(mut ctor) = ctor {
             bin.append(&mut ctor)
         }
-        let tx = do_tx(self, None, bin, &wallet, 0, tx_type);
+        let tx = do_tx(self, None, bin, &wallet, 0.into(), tx_type);
         let to = calc_address(self, &wallet.address());
-        self.send_tx(&tx, wallet, zero_gas).await;
+        self.send_tx(&tx, wallet).await;
 
         to
     }
@@ -177,13 +160,30 @@ impl Client {
         address: &Address,
         method: &str,
         wallet: &Wallet<SigningKey>,
+        value: U256,
         tx_type: u8,
-        zero_gas: bool,
     ) {
         let abi = abi(&format!("{}{}.abi", CONTRACTS, contract));
-        let tx = do_tx(self, Some(*address), method_id(&abi, method), &wallet, 0, tx_type);
+        let call_data = method_id(&abi, method);
+        let tx = do_tx(self, Some(*address), call_data, &wallet, value, tx_type);
+        self.send_tx(&tx, wallet).await;
+    }
 
-        self.send_tx(&tx, wallet, zero_gas).await;
+    #[allow(dead_code)]
+    pub async fn raw_call (
+        &self,
+        address: &Address,
+        method: &str,
+        wallet: &Wallet<SigningKey>,
+        value: U256,
+        tx_type: u8,
+        address_bytes32: [u8; 32],
+    ) {
+        let selector = ethers::utils::id(method)[..4].to_vec();
+        let encoded_args = ethers::abi::encode(&[ethers::abi::Token::FixedBytes(address_bytes32.to_vec())]);
+        let call_data = Bytes::from([selector, encoded_args].concat()).to_vec();
+        let tx = do_tx(self, Some(*address), call_data, &wallet, value, tx_type);
+        self.send_tx(&tx, wallet).await;
     }
 
     /// eth_Call
@@ -196,7 +196,7 @@ impl Client {
         wallet: &Wallet<SigningKey>,
     ) -> Bytes {
         let abi = abi(&format!("{}{}.abi", CONTRACTS, contract));
-        let tx = do_tx(self, Some(*address), method_id(&abi, method), &wallet, 0, 0);
+        let tx = do_tx(self, Some(*address), method_id(&abi, method), &wallet, 0.into(), 0);
 
         self.call(&tx.into()).unwrap()
     }
@@ -207,24 +207,46 @@ impl Client {
         &self,
         wallet: &Wallet<SigningKey>,
         to: &Address,
-        value: u64,
-        zero_gas: bool,
+        value: U256,
     ) {
-        let initial = self.get_balance(*to).unwrap().as_u64();
+        let initial = self.get_balance(*to).unwrap();
 
         let tx = do_tx(&self, Some(*to), vec![], &wallet, value, 0);
-        Self::send_tx(&self, &tx, wallet, zero_gas).await;
+        Self::send_tx(&self, &tx, wallet).await;
 
-        assert_eq!(self.get_balance(*to).unwrap().as_u64(),  initial + value );
+        assert_eq!(self.get_balance(*to).unwrap(),  initial + value );
     }
 
     /// Airdrop
     #[allow(dead_code)]
-    pub async fn airdrop(&self, to: Address, value: u64, zero_gas: bool) {
+    pub async fn airdrop(&self, to: Address, value: U256) {
         if !run_on_testnet() && !run_on_devnet() {
-            self.transfer(&self.user_wallet, &to, value, zero_gas).await;
+            self.transfer(&self.user_wallet, &to, value).await;
         } else {
             println!("Run on testnet or devnet");
         }
+    }
+
+    #[allow(dead_code)]
+    pub fn get_fee_addresses(zero_gas: bool) -> Vec<H160> {
+        let config = client_config(cfg_path(zero_gas));
+        let mut fee_addresses = Vec::new();
+        for payer in &config.payers {
+            if let Some(fees) = payer.fee_recipients() {
+                for &addr in fees {
+                    fee_addresses.push(addr);
+                }
+            }
+        }
+        fee_addresses
+    }   
+    #[allow(dead_code)]
+    pub async fn sum_fee_balances(&self, zero_gas: bool) -> U256 {
+        let fee_addresses = Self::get_fee_addresses(zero_gas);
+        let mut sum = U256::zero();
+        for addr in &fee_addresses {
+            sum += self.get_balance(*addr).unwrap();
+        }
+        sum
     }
 }

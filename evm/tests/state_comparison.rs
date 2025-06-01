@@ -1,119 +1,70 @@
 mod shared;
 
 use crate::shared::utils::{
-    check_recipt, check_state, check_storage, deploy_contract, initial_setup, prepare_tx,
-    return_current_provider,
+    airdrop_to_address, check_recipt, check_state, check_storage, deploy_contract,
+    get_receiver_wallet, initial_setup, return_current_provider, solana_balance,
+    sum_fee_balances, transfer_tx,
 };
+use shared::{test_account, utils::get_random_wallet, WITHDRAWAL_ADDRESS};
+use std::time::Instant;
 use {
+    ethereum_types::H256,
     ethers::{middleware::SignerMiddleware, providers::Middleware},
-    ethers_core::types::U256,
+    ethers_core::types::{Bytes, TransactionRequest, H160, U256},
     ethers_signers::Signer,
     rstest::*,
     serial_test::serial,
+    std::str::FromStr,
+    std::sync::Arc,
 };
-use std::time::Instant;
 
 #[rstest(
-    provider,
+    provider_name,
     airdrop_amount,
     tx_types,
-    case::geth_zero_transfer("geth", 0, vec!["legacy", "eip1559"]),
-    case::proxy_zero_transfer("proxy", 0, vec!["legacy", "eip1559"]),
-    case::geth_transfer("geth", 10000000000000, vec!["legacy", "eip1559"]),
-    case::proxy_transfer("proxy", 10000000000000, vec!["legacy", "eip1559"])
+    case::geth_zero_transfer("geth", U256::from(0), vec!["legacy", "eip1559"]),
+    case::proxy_zero_transfer("proxy", U256::from(0), vec!["legacy", "eip1559"]),
+    case::geth_transfer("geth", U256::from(1000000000000000000u128), vec!["legacy", "eip1559"]),
+    case::proxy_transfer("proxy", U256::from(1000000000000000000u128), vec!["legacy", "eip1559"])
 )]
 #[serial]
 async fn transaction(
-    provider: &str,
-    airdrop_amount: u64,
+    provider_name: &str,
+    airdrop_amount: U256,
     tx_types: Vec<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let total_start = Instant::now();
-    
-    let (geth, proxy, sender, receiver) = initial_setup().await;
-    let provider = return_current_provider(provider, geth.clone(), proxy.clone());
 
-    println!("[ Info: ] - Checking state before transactions");
-    check_state(&proxy, &geth, vec![sender.address(), receiver.address()]).await;
-    
-    let chain_id = provider.get_chainid().await.unwrap().as_u64().into();
-    let client = SignerMiddleware::new(provider.clone(), sender.clone());
+    let sender = get_random_wallet(); // Ethereum sender
+    let _ = airdrop_to_address(sender.address(), U256::exp10(19), provider_name).await?;
+    let receiver = get_receiver_wallet();
 
-    for tx_type in tx_types {
-        let start = Instant::now();
-        let tx = prepare_tx(
-            tx_type,
-            U256::from(airdrop_amount),
-            provider
-                .get_transaction_count(sender.address(), None)
-                .await
-                .unwrap(), // Nonce
-            receiver.address(),
-            sender.clone(),
-            chain_id,
-        );
-        println!("[ {:.2}s ] - Tx preparation", start.elapsed().as_secs_f64());
+    println!("\n[ Info: ] - Checking state before transactions");
+    check_state(vec![sender.address(), receiver.address()]).await;
 
-        let start = Instant::now();
-        let pending_tx = client.send_transaction(tx, None).await?;
-        let receipt = pending_tx
-            .confirmations(1usize)
-            .await?
-            .ok_or("[ Info: ] - Transaction dropped from mempool")?;
-        println!("[ {:.2}s ] - Tx send: {}", start.elapsed().as_secs_f64(), receipt.transaction_hash);
+    transfer_tx(
+        tx_types, // "legacy"
+        airdrop_amount,
+        provider_name,
+        sender,
+        receiver.address(),
+    )
+    .await?;
 
-        println!("[ Info: ] - Checking state after {}", tx_type);
-        check_state(&proxy, &geth, vec![sender.address(), receiver.address()]).await;
-    }
-
-    println!("[ {:.2}s ] - Total duration\n", total_start.elapsed().as_secs_f64());
+    println!(
+        "[ {:.2}s ] - Total duration\n",
+        total_start.elapsed().as_secs_f64()
+    );
     Ok(())
 }
 
 #[rstest(
     contract,
-    provider,
+    provider_name,
     call_functions,
     slots,
     initial_values,
     values,
-
-    // HelloWorld
-    case::deploy_hello_world_geth("HelloWorld", "geth", Some(vec!["hello_world"]), None, None, None),
-    case::deploy_hello_world_proxy("HelloWorld", "proxy", Some(vec!["hello_world"]), None, None, None),
-
-    // AB Deploy, #TODO: add "call_revert" and handle a panic
-    case::deploy_ab_geth("A", "geth", Some(vec![ "update", "deploy_B", "call_update_slot", "get_B_address"]), None, None, None),
-    case::deploy_ab_proxy("A", "proxy", Some(vec!["deploy_B", "update", "call_update_slot", "get_B_address"]), None, None, None),
-
-    // AtomicIterative
-    case::deploy_atomic_iterative_geth("AtomicIterative", "geth", Some(vec!["iterative_rw"]), None, None, None),
-    case::deploy_atomic_iterative_proxy("AtomicIterative", "proxy", Some(vec!["iterative_rw"]), None, None, None),
-
-    // GetStorageAt
-    case::deploy_get_storage_at_geth("GetStorageAt", "geth", Some(vec!["get"]), None, None, None),
-    case::deploy_get_storage_at_proxy("GetStorageAt", "proxy", Some(vec!["get"]), None, None, None),
-
-    // IterativeOpGeth
-    case::deploy_iterative_op_geth_geth("IterativeOpGeth", "geth", Some(vec!["iterative"]), None, None, None),
-    case::deploy_iterative_op_geth_proxy("IterativeOpGeth", "proxy", Some(vec!["iterative"]), None, None, None),
-
-    // NestedCall
-    // case::deploy_NestedCall_geth("NestedCall", "geth", None, None, None, None),
-    // case::deploy_NestedCall_proxy("NestedCall", "proxy", None, None, None, None),
-
-    // DestructCaller
-    case::deploy_destruct_caller_geth("DestructCaller", "geth", None, None, None, None),
-    case::deploy_destruct_caller_proxy("DestructCaller", "proxy", None, None, None, None),
-
-    // TouchStorage
-    case::deploy_touch_storage_geth("TouchStorage", "geth", Some(vec!["get_local"]), None, None, None),
-    case::deploy_touch_storage_proxy("TouchStorage", "proxy", Some(vec!["get_local"]), None, None, None),
-
-    // TestTransientStorage
-    case::deploy_test_transient_storage_geth("TestTransientStorage", "geth", None, None, None, None),
-    case::deploy_test_transient_storage_proxy("TestTransientStorage", "proxy", None, None, None, None),
-
     // MultiStorage
     case::change_storage_uint_geth(
         "MultiStorage",
@@ -167,9 +118,9 @@ async fn transaction(
     ),
 )]
 #[serial]
-async fn check_contract(
+async fn storage_check(
     contract: &str,
-    provider: &str,
+    provider_name: &str,
     call_functions: Option<Vec<&str>>,
     slots: Option<Vec<u64>>,
     initial_values: Option<Vec<u64>>,
@@ -178,17 +129,15 @@ async fn check_contract(
     let total_start = Instant::now();
 
     let (geth, proxy, sender, _receiver) = initial_setup().await;
-    let provider = return_current_provider(provider, geth.clone(), proxy.clone());
-    
-    println!("[ Info: ] - Checking state before deployment");
-    check_state(&proxy, &geth, vec![sender.address()]).await;
+    let provider = return_current_provider(provider_name);
+
+    println!("\n[ Info: ] - Checking state before deployment");
+    check_state(vec![sender.address()]).await;
 
     // Deploy contract
-    let (contract, recipt) = deploy_contract(&contract, provider.clone(), sender.clone())
-        .await
-        .unwrap();
-    check_recipt(&proxy, &geth, &recipt).await;
-    check_state(&proxy, &geth, vec![contract.address()]).await;
+    let (contract, recipt) = deploy_contract(&contract, provider_name, &sender).await.unwrap();
+    check_recipt(&recipt).await;
+    check_state(vec![contract.address()]).await;
 
     // Change storage
     if call_functions != None {
@@ -212,10 +161,14 @@ async fn check_contract(
                 .send()
                 .await?
                 .await?;
-            println!("[ {:.2}s ] - Calling function {}", start.elapsed().as_secs_f64(), call_function);
-            
+            println!(
+                "[ {:.2}s ] - Calling function {}",
+                start.elapsed().as_secs_f64(),
+                call_function
+            );
+
             println!("[ Info: ] - Checking recipt for {}", call_function);
-            check_recipt(&proxy, &geth, &tx_recipt.unwrap()).await;
+            check_recipt(&tx_recipt.unwrap()).await;
 
             if values != None {
                 check_storage(
@@ -228,11 +181,210 @@ async fn check_contract(
                 )
                 .await;
             }
-           println!("[ Info: ] - Checking state after {}", call_function);
-           check_state(&proxy, &geth, vec![contract.address()]).await;
+            println!("[ Info: ] - Checking state after {}", call_function);
+            check_state(vec![contract.address()]).await;
         }
     }
 
-    println!("[ {:.2}s ] - Total duration\n", total_start.elapsed().as_secs_f64());
+    println!(
+        "[ {:.2}s ] - Total duration\n",
+        total_start.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+#[rstest(
+    contract,
+    provider_name,
+    call_functions,
+    amount,
+
+    case::withdraw_from_contract_geth("Caller", "geth", vec!["call1SOLWithdrawal"], U256::exp10(18)),
+    case::withdraw_from_contract_proxy("Caller", "proxy", vec!["call1SOLWithdrawal"], U256::exp10(18)),
+)]
+#[serial]
+async fn withdraw_test(
+    contract: &str,
+    provider_name: &str,
+    call_functions: Vec<&str>,
+    amount: U256,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let total_start = Instant::now();
+
+    // Step 1: Init sender and fund it
+    let test_account = test_account(); // receiver on Solana side
+    let sender = get_random_wallet(); // Ethereum sender
+    let _ = airdrop_to_address(sender.address(), U256::exp10(19), provider_name).await?; // fund sender
+    let provider = return_current_provider(provider_name); // get eth provider
+    let balance_sender_before = provider.get_balance(sender.address(), None).await?;
+    let fee_recepient_balance_before = sum_fee_balances(provider_name).await;
+
+    // Convert Solana test_account to hex for later withdrawal
+    let address_bytes32 = test_account.to_bytes();
+    let solana_receiver_address = address_bytes32
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<String>();
+    let solana_balance_before = solana_balance(test_account); // balance before on Solana
+
+    // Step 2: State check before any actions
+    println!("[ Info: ] - Checking state before deployment");
+    check_state(vec![sender.address()]).await;
+
+    // Step 3: Deploy test contract
+    let (contract, recipt) = deploy_contract(&contract, provider_name, &sender)
+        .await
+        .unwrap();
+    check_recipt(&recipt).await;
+    check_state(vec![contract.address()]).await;
+
+    // Check balances before topping up contract
+    let custom_contract_balance_before = provider.get_balance(contract.address(), None).await?;
+    let predeployed_address = H160::from_str(WITHDRAWAL_ADDRESS).unwrap(); // intermediate Ethereum receiver
+    let balance_predeployed_before = provider.get_balance(predeployed_address, None).await?;
+
+    // Step 4: Fund deployed contract
+    transfer_tx(
+        vec!["legacy"], // "legacy"
+        amount,
+        provider_name,
+        sender.clone(),
+        contract.address(),
+    )
+    .await?;
+    let custom_contract_balance_airdrop = provider.get_balance(contract.address(), None).await?;
+
+    assert_eq!(
+        custom_contract_balance_airdrop - custom_contract_balance_before,
+        amount
+    );
+
+    // Step 5: Call withdrawal function(s)
+    for function in call_functions {
+        let withdrawal_target = H256::from_slice(&hex::decode(&solana_receiver_address).unwrap());
+        let tx_recipt = contract
+            .method::<_, ()>(function, withdrawal_target)? // call withdrawal method
+            .send()
+            .await?
+            .await?;
+
+        println!("[ Info: ] - Checking recipt & state for {}", function);
+        check_recipt(&tx_recipt.unwrap()).await;
+        check_state(vec![contract.address()]).await;
+    }
+
+    // Step 6: Check balances after withdrawal
+    let balance_sender_after = provider.get_balance(sender.address(), None).await?;
+    let custom_contract_balance_after = provider.get_balance(contract.address(), None).await?;
+    let balance_predeployed_after = provider.get_balance(predeployed_address, None).await?;
+    let solana_balance_after = solana_balance(test_account);
+    let fee_recepient_balance_after = sum_fee_balances(provider_name).await;
+    let total_fee = fee_recepient_balance_after - fee_recepient_balance_before;
+
+    // Step 7: Assert correctness of cross-chain transfer
+    assert_eq!(
+        balance_sender_after,
+        balance_sender_before - total_fee - amount
+    );
+    assert_eq!(
+        solana_balance_after,
+        solana_balance_before + amount / U256::from(1_000_000_000)
+    );
+    assert_eq!(
+        balance_predeployed_after,
+        balance_predeployed_before + amount
+    );
+    assert_eq!(
+        custom_contract_balance_after,
+        custom_contract_balance_airdrop - amount
+    );
+
+    println!(
+        "[ {:.2}s ] - Total duration\n",
+        total_start.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+#[rstest(
+    provider_name,
+    amount,
+    case::withdraw_raw_geth("geth", U256::exp10(18)),
+    case::withdraw_raw_proxy("proxy", U256::exp10(18))
+)]
+#[serial]
+async fn withdraw_raw_test(
+    provider_name: &str,
+    amount: U256,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let total_start = Instant::now();
+
+    //Step 1: Initial setup
+    let test_account = test_account(); // receiver on Solana side
+    let sender = get_random_wallet(); // Ethereum sender
+    let _ = airdrop_to_address(sender.address(), U256::exp10(19), provider_name).await?; // fund sender
+    let provider = return_current_provider(provider_name);
+
+    // Convert the Solana public key to bytes32 format (needed for the withdrawal call)
+    let solana_address_bytes32 = test_account.to_bytes();
+    let solana_balance_before = solana_balance(test_account);
+    println!("\n[ Info: ] - Checking state before deployment");
+    check_state(vec![sender.address()]).await;
+
+    let predeployed_address = H160::from_str(WITHDRAWAL_ADDRESS).unwrap();
+    let balance_predeployed_before = provider.get_balance(predeployed_address, None).await?;
+    let balance_sender_before = provider.get_balance(sender.address(), None).await?;
+    let fee_recepient_balance_before = sum_fee_balances(provider_name).await;
+
+    // Wrap the provider and sender into a signing client
+    let client = SignerMiddleware::new(provider.clone(), sender.clone());
+    let client = Arc::new(client);
+
+    //Step 2: Prepare the withdrawal call
+    // Create the function selector for withdrawal(bytes32)
+    let selector = ethers::utils::id("withdrawal(bytes32)")[..4].to_vec();
+    // ABI-encode the Solana bytes32 address argument
+    let encoded_args = ethers::abi::encode(&[ethers::abi::Token::FixedBytes(
+        solana_address_bytes32.to_vec(),
+    )]);
+    // Concatenate selector and arguments to get the final calldata
+    let calldata = Bytes::from([selector, encoded_args].concat());
+    println!("[ Info: ] - Calling function withdraw");
+    // Build the raw transaction to call the withdrawal function
+    let tx = TransactionRequest::new()
+        .to(predeployed_address)
+        .data(calldata)
+        .value(amount); // value sent with the transaction
+
+    //Step 3: Execute transaction and wait for confirmation
+    // Send the transaction and wait for 1 confirmation
+    let pending_tx = client.send_transaction(tx, None).await?;
+    let _receipt = pending_tx.confirmations(1).await?;
+
+    //Step 4: Verify resulting balances
+    let balance_predeployed_after = provider.get_balance(predeployed_address, None).await?;
+    let solana_balance_after = solana_balance(test_account);
+    let balance_sender_after = provider.get_balance(sender.address(), None).await?;
+    let fee_recepient_balance_after = sum_fee_balances(provider_name).await;
+    let total_fee = fee_recepient_balance_after - fee_recepient_balance_before;
+
+    //Step 5: Assertions to verify correctness
+    assert_eq!(
+        balance_sender_after,
+        balance_sender_before - amount - total_fee
+    );
+    assert_eq!(
+        solana_balance_after,
+        solana_balance_before + amount / U256::from(1_000_000_000)
+    );
+    assert_eq!(
+        balance_predeployed_after,
+        balance_predeployed_before + amount
+    );
+
+    println!(
+        "[ {:.2}s ] - Total duration\n",
+        total_start.elapsed().as_secs_f64()
+    );
     Ok(())
 }

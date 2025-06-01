@@ -72,3 +72,4 @@ payers:
     number_holders: 64
 proxy_host: "0.0.0.0:9090"
 max_slot_history: 4096
+gas_price: 1000000000

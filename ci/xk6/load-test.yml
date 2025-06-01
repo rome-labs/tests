@@ -1,0 +1,19 @@
+
+services:
+  load-test:
+    container_name: xk6
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      K6_WEB_DASHBOARD: true
+      K6_WEB_DASHBOARD_EXPORT: /go/records/report/index.html
+    volumes:
+      - ./scenarios:/go/scenarios
+      - ../../records:/go/records
+      - ./helpers:/go/helpers
+    networks:
+      - ci_net
+networks:
+  ci_net:
+    external: true

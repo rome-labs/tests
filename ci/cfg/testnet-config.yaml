@@ -1,0 +1,15 @@
+chain_id: 100100
+program_id: "RTS6bJFgnw11zmQhvyfBUvXLiQFTapuMj4enXjyS2pd"
+start_slot: 0
+solana:
+  rpc_url: "https://node1.testnet-eu-sol-api.testnet.romeprotocol.xyz"
+  commitment: "confirmed"
+payers:
+  - payer_keypair: "/opt/ci/keys/test-account-keypair.json"
+    fee_recipients:
+      - 0xe235b9caf55b58863Ae955A372e49362b0f93726
+      - 0x8870D7800Dd9B1CF34DBC54D348F70A342A4606D
+upgrade_authority_keypair: "/opt/ci/keys/upgrade-authority-keypair.json"
+user_keypair: "/opt/ci/keys/test-account-keypair.json"
+number_holders: 256
+proxy_host: "0.0.0.0:9090"

@@ -1,5 +1,5 @@
 # Tests
-This repository contains tests for the EVM and Rhea projects.
+This repository contains tests for the EVM, Rhea and Hercules projects.
 
 ## Integration tests 
 1. To run integration tests, execute the following commands from the root directory:

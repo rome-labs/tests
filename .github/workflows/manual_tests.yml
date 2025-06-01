@@ -3,24 +3,121 @@ name: Workflow to run tests manually
 on:
   workflow_dispatch:
     inputs:
-      docker_image_tags:
-        description: 'JSON object containing Docker image tags (e.g., {"evm": "latest", "apps": "latest", "geth": "latest", "tests": "latest", "uniswap": "latest", "openzeppelin": "latest"})'
+      config_json:
+        description: 'Config tags JSON (e.g. {"evm_tag":"latest", ...})'
         required: true
-        default: '{"evm": "latest", "apps": "latest", "geth": "main", "tests": "latest", "uniswap": "latest", "openzeppelin": "latest"}'
-      tests_list:
-        description: 'Comma-separated list of tests to run (e.g., tests,uniswap_geth,uniswap_proxy,openzeppelin_geth,openzeppelin_proxy)'
-        required: true
-        default: 'tests,uniswap_geth,uniswap_proxy'
-      rome_tests_ref_name:
-        description: 'Test repo branch name to use for running the test scripts from'
-        required: true
-        default: 'main'
+        default: >-
+          {
+            "evm_tag": "latest",
+            "apps_tag": "latest",
+            "geth_tag": "main",
+            "tests_tag": "latest",
+            "uniswap_tag": "latest",
+            "relayer_tag": "latest"
+          }
 
-jobs: 
+      run_evm:
+        description: 'Include "evm"'
+        required: false
+        default: false
+        type: boolean
+      run_spl:
+        description: 'Include "spl"'
+        required: false
+        default: false
+        type: boolean
+      run_state_comparison:
+        description: 'Include "state_comparison"'
+        required: false
+        default: false
+        type: boolean
+      run_uniswap_op_geth:
+        description: 'Include "uniswap_op_geth"'
+        required: false
+        default: false
+        type: boolean
+      run_uniswap_proxy:
+        description: 'Include "uniswap_proxy"'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  check-build-needed:
+    name: "Check if build is needed"
+    runs-on: ubuntu-latest
+    outputs:
+      build_needed: ${{ steps.check.outputs.build_needed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - id: check
+        run: |
+          echo "Checking if rome-evm or rome-sdk changed..."
+          changed=$(git diff --name-only HEAD^ HEAD)
+          echo "$changed"
+
+          if echo "$changed" | grep -E '^rome-evm/|^rome-sdk/'; then
+            echo "build_needed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "build_needed=false" >> "$GITHUB_OUTPUT"
+          fi
+  
+  call-reusable-build:
+    name: "Build"
+    needs: [check-build-needed]
+    if: needs.check-build-needed.outputs.build_needed == 'true'
+    uses: ./.github/workflows/reusable_wf_build.yml
+    secrets: inherit
+    with:
+      rome_tests_ref_name: ${{ 'main' }}
+      rome_evm_ref_name: ${{ 'main' }}
+      rome_sdk_ref_name: ${{ 'main' }}
+  
+  prepare-inputs:
+    runs-on: ubuntu-latest
+    outputs:
+      docker_image_tags: ${{ steps.generate.outputs.docker_image_tags }}
+      tests_list: ${{ steps.generate.outputs.tests_list }}
+    steps:
+      - id: generate
+        run: |
+          CONFIG_JSON='${{ inputs.config_json }}'
+          echo "Raw JSON: $CONFIG_JSON"
+
+          evm_tag=$(echo "$CONFIG_JSON" | jq -r '.evm_tag')
+          apps_tag=$(echo "$CONFIG_JSON" | jq -r '.apps_tag')
+          geth_tag=$(echo "$CONFIG_JSON" | jq -r '.geth_tag')
+          tests_tag=$(echo "$CONFIG_JSON" | jq -r '.tests_tag')
+          uniswap_tag=$(echo "$CONFIG_JSON" | jq -r '.uniswap_tag')
+          relayer_tag=$(echo "$CONFIG_JSON" | jq -r '.relayer_tag')
+
+          docker_image_tags="{\"evm\":\"$evm_tag\",\"apps\":\"$apps_tag\",\"geth\":\"$geth_tag\",\"tests\":\"$tests_tag\",\"uniswap\":\"$uniswap_tag\",\"relayer\":\"$relayer_tag\"}"
+          echo "docker_image_tags=$docker_image_tags" >> "$GITHUB_OUTPUT"
+
+          list=""
+          [[ "${{ inputs.run_evm }}" == "true" ]] && list="$list,evm"
+          [[ "${{ inputs.run_spl }}" == "true" ]] && list="$list,spl"
+          [[ "${{ inputs.run_state_comparison }}" == "true" ]] && list="$list,state_comparison"
+          [[ "${{ inputs.run_state_comparison }}" == "true" ]] && list="$list,state_comparison_2"
+          [[ "${{ inputs.run_uniswap_op_geth }}" == "true" ]] && list="$list,uniswap_op_geth"
+          [[ "${{ inputs.run_uniswap_proxy }}" == "true" ]] && list="$list,uniswap_proxy"
+          list="${list#,}"
+
+          echo "tests_list=$list" >> "$GITHUB_OUTPUT"
+
   call-reusable-tests:
+    needs: [prepare-inputs, check-build-needed, call-reusable-build]
     uses: ./.github/workflows/reusable_wf_tests.yml
     secrets: inherit
     with:
-      docker_image_tags: ${{ inputs.docker_image_tags }}
-      tests_list: ${{ inputs.tests_list }}
-      rome_tests_ref_name: ${{ inputs.rome_tests_ref_name }}
+      docker_image_tags: ${{ needs.prepare-inputs.outputs.docker_image_tags }}
+      tests_list: ${{ needs.prepare-inputs.outputs.tests_list }}
+      rome_tests_ref_name: ${{ github.ref_name }}
+    if: |
+      always() &&
+      (needs.check-build-needed.outputs.build_needed == 'false' || 
+       success())

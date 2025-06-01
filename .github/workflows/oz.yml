@@ -18,7 +18,7 @@ on:
         type: string
         description: 'geth tag'
         required: false
-        default: 'main'
+        default: 'latest'
       rpc_url:
         type: string
         description: 'rpc url'
@@ -37,6 +37,9 @@ env:
   PROXY_URL: ${{ github.event.inputs.rpc_url || 'http://proxy:9090'}}
   PROXY_CONFIG: /opt/cfg/proxy-config-oz.yml
   RHEA_CONFIG: /opt/cfg/rhea-config-oz.yml
+  OTLP_RECEIVER_URL: ''
+  ENABLE_OTEL_METRICS: 'false'
+  ENABLE_OTEL_TRACING: 'false'
 
 permissions:
   contents: read
